@@ -1,0 +1,12 @@
+[
+  {"log": "ERROR Lambda timed out after 3 seconds"},
+  {"log": "ERROR AccessDenied writing to S3 bucket orders-prod"},
+  {"log": "ERROR Connection refused while accessing database"},
+  {"log": "ERROR API Gateway returned 500 Internal Server Error"},
+  {"log": "ERROR IAM role missing s3:PutObject permission"},
+  {"log": "ERROR Lambda memory exceeded 128MB"},
+  {"log": "ERROR DynamoDB provisioned throughput exceeded"},
+  {"log": "ERROR Security group blocked port 22"},
+  {"log": "ERROR S3 bucket policy denied access"},
+  {"log": "ERROR Lambda execution environment initialization failed"}
+]

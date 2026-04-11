@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIOps Incident Dashboard</title>
+    <style>
+        :root {
+            --bg: #f3f6fb;
+            --panel: #ffffff;
+            --panel-soft: #f8fafc;
+            --border: #dbe3ee;
+            --text: #142033;
+            --muted: #64748b;
+            --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+            --radius: 18px;
+            --high: #dc2626;
+            --high-soft: #fee2e2;
+            --medium: #d97706;
+            --medium-soft: #ffedd5;
+            --low: #15803d;
+            --low-soft: #dcfce7;
+            --warning: #7c3aed;
+            --warning-soft: #ede9fe;
+            --open: #2563eb;
+            --open-soft: #dbeafe;
+            --awaiting: #b45309;
+            --awaiting-soft: #fef3c7;
+            --resolved: #166534;
+            --resolved-soft: #dcfce7;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background:
+                radial-gradient(circle at top right, #dbeafe 0%, transparent 24%),
+                radial-gradient(circle at top left, #ccfbf1 0%, transparent 22%),
+                var(--bg);
+            color: var(--text);
+        }
+
+        .dashboard {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 28px 24px 36px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .title-wrap h1 {
+            margin: 0 0 6px;
+            font-size: 36px;
+            line-height: 1.1;
+        }
+
+        .title-wrap p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            background: var(--panel);
+            color: var(--text);
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0f766e, #155e75);
+            color: #ffffff;
+            border-color: transparent;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card,
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .summary-card {
+            padding: 18px 18px 16px;
+        }
+
+        .summary-title {
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .summary-value {
+            font-size: 34px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .summary-sub {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1.8fr 1fr;
+            gap: 18px;
+        }
+
+        .panel {
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 18px 20px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(180deg, #ffffff, #fbfdff);
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 26px;
+            line-height: 1.1;
+        }
+
+        .panel-subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .table-wrap,
+        .details-body {
+            padding: 12px 16px 18px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            padding: 12px 10px;
+            border-bottom: 1px solid var(--border);
+            text-transform: uppercase;
+        }
+
+        td {
+            padding: 14px 10px;
+            border-bottom: 1px solid #edf2f7;
+            font-size: 14px;
+            vertical-align: top;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .incident-row {
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .incident-row:hover,
+        .incident-row.active {
+            background: #f8fbff;
+        }
+
+        .incident-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .incident-log {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .HIGH { color: var(--high); background: var(--high-soft); }
+        .MEDIUM { color: var(--medium); background: var(--medium-soft); }
+        .LOW { color: var(--low); background: var(--low-soft); }
+        .WARNING { color: var(--warning); background: var(--warning-soft); }
+        .OPEN { color: var(--open); background: var(--open-soft); }
+        .AWAITING_RESOLUTION { color: var(--awaiting); background: var(--awaiting-soft); }
+        .RESOLVED { color: var(--resolved); background: var(--resolved-soft); }
+
+        .right-column {
+            display: grid;
+            gap: 18px;
+        }
+
+        .detail-grid {
+            display: grid;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .detail-block {
+            background: var(--panel-soft);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+        }
+
+        .detail-label {
+            display: block;
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .detail-value {
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        textarea {
+            min-height: 110px;
+            resize: vertical;
+        }
+
+        .field-group {
+            margin-bottom: 14px;
+        }
+
+        .notes-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .notes-list li {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            color: #334155;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .empty-state {
+            padding: 26px 20px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .error-banner {
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid #fecaca;
+            background: #fef2f2;
+            color: #991b1b;
+            font-size: 14px;
+            display: none;
+        }
+
+        .save-row {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
+
+        .toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            background: #0f172a;
+            color: #ffffff;
+            padding: 12px 16px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (max-width: 1320px) {
+            .summary-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 1050px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .dashboard {
+                padding: 20px 14px 28px;
+            }
+
+            .topbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .summary-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 520px) {
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div id="errorBanner" class="error-banner"></div>
+
+        <div class="topbar">
+            <div class="title-wrap">
+                <h1>AIOps Incident Dashboard</h1>
+                <p>Monitor AI-triaged incidents, update status, and persist investigation notes in DynamoDB.</p>
+            </div>
+            <div class="actions">
+                <button class="btn" onclick="loadData()">Refresh</button>
+                <button class="btn btn-primary" onclick="generateIncident()">Generate Incident</button>
+            </div>
+        </div>
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-title">High Incidents</div>
+                <div class="summary-value" id="highCount">0</div>
+                <div class="summary-sub">Critical action needed</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">Medium Incidents</div>
+                <div class="summary-value" id="mediumCount">0</div>
+                <div class="summary-sub">Needs prioritised review</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">Low Incidents</div>
+                <div class="summary-value" id="lowCount">0</div>
+                <div class="summary-sub">Lower operational impact</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">Warnings</div>
+                <div class="summary-value" id="warningCount">0</div>
+                <div class="summary-sub">Potential issue signals</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">Resolved</div>
+                <div class="summary-value" id="resolvedCount">0</div>
+                <div class="summary-sub">Closed successfully</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">Awaiting Resolution</div>
+                <div class="summary-value" id="awaitingCount">0</div>
+                <div class="summary-sub">Tracked but not closed</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Incident Queue</h2>
+                    <p class="panel-subtitle">Status, severity, and root-cause output for all persisted incidents.</p>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Error</th>
+                                <th>Severity</th>
+                                <th>Status</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="incidentTable"></tbody>
+                    </table>
+                    <div id="tableEmpty" class="empty-state" style="display: none;">
+                        No incidents found yet. Generate one to start populating the dashboard.
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-column">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Incident Details</h2>
+                        <p class="panel-subtitle">Select an incident, then save status updates and notes.</p>
+                    </div>
+                    <div class="details-body">
+                        <div id="detailsContent">
+                            <div class="empty-state">
+                                Choose an incident from the queue to inspect root cause, recommendation, notes, and current status.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Recent Notes</h2>
+                        <p class="panel-subtitle">Latest investigation history across incidents.</p>
+                    </div>
+                    <div id="recentNotes" class="details-body">
+                        <div class="empty-state">No notes have been saved yet.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const DEFAULT_REMOTE_API_URL = "https://5g6wjqdenakuiatlv2jv2nbdty0iqxub.lambda-url.us-east-1.on.aws/";
+        const LOCAL_HOSTNAMES = ["localhost", "127.0.0.1"];
+        const runtimeConfig = window.APP_CONFIG || {};
+        const BASE_URL = runtimeConfig.API_BASE_URL || (
+            LOCAL_HOSTNAMES.indexOf(window.location.hostname) >= 0
+                ? "/api/incidents"
+                : DEFAULT_REMOTE_API_URL
+        );
+
+        const POLL_INTERVAL_MS = 5000;
+
+        let incidents = [];
+        let selectedIncidentId = null;
+        let lastIncidentsSignature = "";
+        let isLoadingData = false;
+
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.classList.add("show");
+            window.clearTimeout(showToast._timer);
+            showToast._timer = window.setTimeout(() => {
+                toast.classList.remove("show");
+            }, 2400);
+        }
+
+        function showError(message) {
+            const banner = document.getElementById("errorBanner");
+            banner.textContent = message;
+            banner.style.display = "block";
+            showToast(message);
+        }
+
+        function clearError() {
+            const banner = document.getElementById("errorBanner");
+            banner.textContent = "";
+            banner.style.display = "none";
+        }
+
+        function escapeHtml(value) {
+            return String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function prettyStatus(status) {
+            return String(status || "OPEN")
+                .toLowerCase()
+                .split("_")
+                .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(" ");
+        }
+
+        function getSelectedIncident() {
+            return incidents.find(item => item.incident_id === selectedIncidentId) || null;
+        }
+
+        function buildIncidentsSignature(items) {
+            return JSON.stringify(items || []);
+        }
+
+        function captureDetailDraft() {
+            const statusInput = document.getElementById("statusInput");
+            const noteInput = document.getElementById("noteInput");
+
+            return {
+                incidentId: selectedIncidentId,
+                status: statusInput ? statusInput.value : null,
+                note: noteInput ? noteInput.value : "",
+                activeElementId: document.activeElement ? document.activeElement.id : ""
+            };
+        }
+
+        function restoreDetailDraft(draft) {
+            if (!draft || draft.incidentId !== selectedIncidentId) {
+                return;
+            }
+
+            const statusInput = document.getElementById("statusInput");
+            const noteInput = document.getElementById("noteInput");
+
+            if (statusInput && draft.status) {
+                statusInput.value = draft.status;
+            }
+
+            if (noteInput) {
+                noteInput.value = draft.note || "";
+            }
+
+            if (draft.activeElementId === "noteInput" && noteInput) {
+                noteInput.focus();
+                noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length);
+            } else if (draft.activeElementId === "statusInput" && statusInput) {
+                statusInput.focus();
+            }
+        }
+
+        function syncDashboard(nextIncidents, options) {
+            const settings = options || {};
+            const draft = captureDetailDraft();
+            const nextSignature = buildIncidentsSignature(nextIncidents);
+            const selectionMissing = selectedIncidentId && !nextIncidents.some(item => item.incident_id === selectedIncidentId);
+            const shouldRender = settings.force || selectionMissing || nextSignature !== lastIncidentsSignature;
+
+            incidents = nextIncidents;
+
+            if (!selectedIncidentId && incidents.length) {
+                selectedIncidentId = incidents[0].incident_id;
+            }
+
+            if (selectionMissing) {
+                selectedIncidentId = incidents.length ? incidents[0].incident_id : null;
+            }
+
+            if (!shouldRender) {
+                return;
+            }
+
+            lastIncidentsSignature = nextSignature;
+            updateSummaryCards();
+            renderTable();
+            renderDetails();
+            restoreDetailDraft(draft);
+            renderRecentNotes();
+        }
+
+        function updateSummaryCards() {
+            const counts = {
+                HIGH: 0,
+                MEDIUM: 0,
+                LOW: 0,
+                WARNING: 0,
+                RESOLVED: 0,
+                AWAITING_RESOLUTION: 0
+            };
+
+            incidents.forEach(item => {
+                counts[item.severity] = (counts[item.severity] || 0) + 1;
+                counts[item.status] = (counts[item.status] || 0) + 1;
+            });
+
+            document.getElementById("highCount").textContent = counts.HIGH || 0;
+            document.getElementById("mediumCount").textContent = counts.MEDIUM || 0;
+            document.getElementById("lowCount").textContent = counts.LOW || 0;
+            document.getElementById("warningCount").textContent = counts.WARNING || 0;
+            document.getElementById("resolvedCount").textContent = counts.RESOLVED || 0;
+            document.getElementById("awaitingCount").textContent = counts.AWAITING_RESOLUTION || 0;
+        }
+
+        function renderTable() {
+            const table = document.getElementById("incidentTable");
+            const empty = document.getElementById("tableEmpty");
+
+            if (!incidents.length) {
+                table.innerHTML = "";
+                empty.style.display = "block";
+                return;
+            }
+
+            empty.style.display = "none";
+            table.innerHTML = incidents.map(item => `
+                <tr class="incident-row ${item.incident_id === selectedIncidentId ? "active" : ""}" data-id="${item.incident_id}">
+                    <td>
+                        <div class="incident-meta">
+                            <strong>${escapeHtml(item.error_type || "Unknown")}</strong>
+                            <span class="incident-log">${escapeHtml(item.log || "-")}</span>
+                        </div>
+                    </td>
+                    <td><span class="badge ${escapeHtml(item.severity || "LOW")}">${escapeHtml(item.severity || "LOW")}</span></td>
+                    <td><span class="badge ${escapeHtml(item.status || "OPEN")}">${escapeHtml(prettyStatus(item.status || "OPEN"))}</span></td>
+                    <td>${escapeHtml(item.timestamp || "-")}</td>
+                </tr>
+            `).join("");
+
+            table.querySelectorAll(".incident-row").forEach(row => {
+                row.addEventListener("click", () => {
+                    selectedIncidentId = row.dataset.id;
+                    renderTable();
+                    renderDetails();
+                });
+            });
+        }
+
+        function renderDetails() {
+            const wrap = document.getElementById("detailsContent");
+            const incident = getSelectedIncident();
+
+            if (!incident) {
+                wrap.innerHTML = `
+                    <div class="empty-state">
+                        Choose an incident from the queue to inspect root cause, recommendation, notes, and current status.
+                    </div>
+                `;
+                return;
+            }
+
+            const notes = incident.notes || [];
+            const notesHtml = notes.length
+                ? `<ul class="notes-list">${notes.map(note => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`
+                : `<div class="empty-state" style="padding: 12px 0 0;">No notes saved for this incident yet.</div>`;
+
+            wrap.innerHTML = `
+                <div class="detail-grid">
+                    <div class="detail-block">
+                        <span class="detail-label">Severity</span>
+                        <span class="badge ${escapeHtml(incident.severity || "LOW")}">${escapeHtml(incident.severity || "LOW")}</span>
+                    </div>
+                    <div class="detail-block">
+                        <span class="detail-label">Current Status</span>
+                        <span class="badge ${escapeHtml(incident.status || "OPEN")}">${escapeHtml(prettyStatus(incident.status || "OPEN"))}</span>
+                    </div>
+                    <div class="detail-block">
+                        <span class="detail-label">Error Type</span>
+                        <div class="detail-value">${escapeHtml(incident.error_type || "Unknown")}</div>
+                    </div>
+                    <div class="detail-block">
+                        <span class="detail-label">Root Cause</span>
+                        <div class="detail-value">${escapeHtml(incident.root_cause || "Not identified")}</div>
+                    </div>
+                    <div class="detail-block">
+                        <span class="detail-label">Recommended Fix</span>
+                        <div class="detail-value">${escapeHtml(incident.recommended_fix || "Manual investigation required")}</div>
+                    </div>
+                    <div class="detail-block">
+                        <span class="detail-label">Log Message</span>
+                        <div class="detail-value">${escapeHtml(incident.log || "-")}</div>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="detail-label" for="statusInput">Update Status</label>
+                    <select id="statusInput">
+                        <option value="OPEN" ${incident.status === "OPEN" ? "selected" : ""}>Open</option>
+                        <option value="AWAITING_RESOLUTION" ${incident.status === "AWAITING_RESOLUTION" ? "selected" : ""}>Awaiting Resolution</option>
+                        <option value="RESOLVED" ${incident.status === "RESOLVED" ? "selected" : ""}>Resolved</option>
+                    </select>
+                </div>
+
+                <div class="field-group">
+                    <label class="detail-label" for="noteInput">Add Note</label>
+                    <textarea id="noteInput" placeholder="Add investigation notes, remediation progress, or handoff details..."></textarea>
+                </div>
+
+                <div class="field-group">
+                    <span class="detail-label">Saved Notes</span>
+                    ${notesHtml}
+                </div>
+
+                <div class="save-row">
+                    <button class="btn btn-primary" onclick="saveIncident()">Submit</button>
+                </div>
+            `;
+        }
+
+        function renderRecentNotes() {
+            const wrap = document.getElementById("recentNotes");
+            const allNotes = [];
+
+            incidents.forEach(function (item) {
+                const itemNotes = item.notes || [];
+                itemNotes.forEach(function (note) {
+                    allNotes.push({
+                        incident: item.error_type || "Unknown",
+                        status: item.status || "OPEN",
+                        note: note
+                    });
+                });
+            });
+
+            if (!allNotes.length) {
+                wrap.innerHTML = `<div class="empty-state">No notes have been saved yet.</div>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <ul class="notes-list">
+                    ${allNotes.slice(0, 8).map(entry => `
+                        <li>
+                            <strong>${escapeHtml(entry.incident)}</strong><br>
+                            ${escapeHtml(entry.note)}<br>
+                            <span style="color: var(--muted); font-size: 12px;">${escapeHtml(prettyStatus(entry.status))}</span>
+                        </li>
+                    `).join("")}
+                </ul>
+            `;
+        }
+
+        async function loadData(options) {
+            const settings = options || {};
+
+            if (isLoadingData) {
+                return;
+            }
+
+            try {
+                isLoadingData = true;
+                if (!settings.silent) {
+                    clearError();
+                }
+
+                const res = await fetch(BASE_URL);
+                const payload = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(payload.message || "Dashboard fetch failed");
+                }
+
+                const nextIncidents = Array.isArray(payload) ? payload : (payload.items || []);
+                syncDashboard(nextIncidents, settings);
+            } catch (error) {
+                if (!settings.silent) {
+                    incidents = [];
+                    lastIncidentsSignature = "";
+                    updateSummaryCards();
+                    renderTable();
+                    renderDetails();
+                    renderRecentNotes();
+                    showError(`Unable to load incidents: ${error.message}`);
+                }
+            } finally {
+                isLoadingData = false;
+            }
+        }
+
+        async function generateIncident() {
+            try {
+                clearError();
+                const res = await fetch(`${BASE_URL}?action=generate`);
+                const payload = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(payload.message || "Incident generation failed");
+                }
+
+                const nextIncidents = payload.items || [];
+                syncDashboard(nextIncidents, { force: true });
+
+                if (payload.incident && payload.incident.incident_id) {
+                    selectedIncidentId = payload.incident.incident_id;
+                    renderTable();
+                    renderDetails();
+                    renderRecentNotes();
+                }
+                showToast("New incident generated");
+            } catch (error) {
+                showError(`Unable to generate incident: ${error.message}`);
+            }
+        }
+
+        async function saveIncident() {
+            const incident = getSelectedIncident();
+            if (!incident) {
+                showToast("Select an incident first");
+                return;
+            }
+
+            try {
+                clearError();
+                const statusInput = document.getElementById("statusInput");
+                const noteInput = document.getElementById("noteInput");
+                const status = (statusInput && statusInput.value) || incident.status || "OPEN";
+                const note = ((noteInput && noteInput.value) || "").trim();
+
+                const res = await fetch(BASE_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        incident_id: incident.incident_id,
+                        status,
+                        note
+                    })
+                });
+
+                const payload = await res.json();
+                if (!res.ok) {
+                    throw new Error(payload.message || "Unable to save incident");
+                }
+
+                showToast("Incident saved to DynamoDB");
+                await loadData({ force: true });
+            } catch (error) {
+                showError(`Unable to save incident: ${error.message}`);
+            }
+        }
+
+        loadData({ force: true });
+        window.setInterval(() => {
+            loadData({ silent: true });
+        }, POLL_INTERVAL_MS);
+    </script>
+</body>
+</html>
