@@ -17,11 +17,21 @@ sns = boto3.client("sns")
 s3 = boto3.client("s3")
 table = dynamodb.Table("aiops-incidents")
 cloudwatch = boto3.client('cloudwatch')
+ssm = boto3.client("ssm")
+
+# 🚀 5TH PROGRAMMATIC CLOUD SERVICE: AWS SSM PARAMETER STORE
+def get_ssm_parameter(name, fallback_env):
+    try:
+        response = ssm.get_parameter(Name=name, WithDecryption=False)
+        return response["Parameter"]["Value"].strip()
+    except Exception as e:
+        print(f"SSM Fetch missed for {name}. Falling back to env vars. Error: {str(e)}")
+        return os.environ.get(fallback_env, "").strip()
 
 NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
-SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "").strip()
-S3_ARCHIVE_BUCKET = os.environ.get("S3_ARCHIVE_BUCKET", "").strip()
+SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
+S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
 
 RESPONSE_HEADERS = {
     "Content-Type": "application/json",
