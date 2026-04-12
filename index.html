@@ -491,7 +491,7 @@
                         </p>
                     </div>
                     <select id="statusFilter" class="btn"
-                        style="background:#fff; padding: 6px 12px; height: 36px; line-height: 1;"
+                        style="background:#fff; padding: 6px 12px; height: 36px; width: 140px; line-height: 1;"
                         onchange="setFilter(this.value)">
                         <option value="ALL">All Incidents</option>
                         <option value="OPEN">Open</option>
@@ -504,9 +504,12 @@
                         <thead>
                             <tr>
                                 <th>Error</th>
-                                <th>Severity</th>
-                                <th>Status</th>
-                                <th>Timestamp</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('severity')" title="Sort by Severity">
+                                    Severity ↕</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('status')" title="Sort by Status">Status
+                                    ↕</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('timestamp')" title="Sort by Timestamp">
+                                    Timestamp ↕</th>
                             </tr>
                         </thead>
                         <tbody id="incidentTable"></tbody>
@@ -574,6 +577,7 @@
         let currentFilter = "ALL";
         let tablePage = 1;
         const TABLE_PAGE_SIZE = 12;
+        let currentSort = { col: "timestamp", asc: false };
 
         let notesPage = 1;
         const NOTES_PAGE_SIZE = 4;
@@ -585,6 +589,16 @@
         }
         function changeTablePage(d) { tablePage += d; renderTable(); }
         function changeNotesPage(d) { notesPage += d; renderRecentNotes(); }
+
+        function toggleSort(col) {
+            if (currentSort.col === col) {
+                currentSort.asc = !currentSort.asc;
+            } else {
+                currentSort.col = col;
+                currentSort.asc = true;
+            }
+            renderTable();
+        }
 
         function showToast(message) {
             const toast = document.getElementById("toast");
@@ -744,10 +758,28 @@
             const empty = document.getElementById("tableEmpty");
             const pag = document.getElementById("tablePagination");
 
-            let filtered = incidents;
+            let filtered = [...incidents];
             if (currentFilter !== "ALL") {
-                filtered = incidents.filter(i => i.status === currentFilter);
+                filtered = filtered.filter(i => i.status === currentFilter);
             }
+
+            filtered.sort((a, b) => {
+                let valA = a[currentSort.col] || "";
+                let valB = b[currentSort.col] || "";
+
+                if (currentSort.col === 'severity') {
+                    const w = { "HIGH": 3, "MEDIUM": 2, "LOW": 1, "WARNING": 0 };
+                    valA = w[valA.toString().toUpperCase()] || -1;
+                    valB = w[valB.toString().toUpperCase()] || -1;
+                } else if (currentSort.col === 'timestamp') {
+                    valA = new Date(valA).getTime() || 0;
+                    valB = new Date(valB).getTime() || 0;
+                }
+
+                if (valA < valB) return currentSort.asc ? -1 : 1;
+                if (valA > valB) return currentSort.asc ? 1 : -1;
+                return 0;
+            });
 
             if (!filtered.length) {
                 table.innerHTML = "";
