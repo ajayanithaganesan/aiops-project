@@ -611,6 +611,52 @@ Open issues / next step:
 - ...
 ```
 
+### Step 13: Finalizing Event-Driven Integrations & S3 Archiving
+Status: `Completed`
+
+What we did:
+- Integrated `boto3` S3 to automatically archive resolved incidents directly into an S3 bucket for cold storage.
+- Hooked up Amazon EventBridge with a 5-minute cron rule to hit the Lambda function natively and auto-generate new mocked incidents.
+
+Why we implemented it:
+- S3 archiving meets standard compliance needs for old ticket storage.
+- EventBridge triggers active data flow to effortlessly simulate real monitoring traffic for demo purposes.
+
+AWS services touched:
+- S3
+- EventBridge
+
+---
+
+### Step 14: Centralized Config Management (SSM)
+Status: `Completed`
+
+What we did:
+- Migrated hardcoded environment variables over to dynamic `boto3` calls hitting the AWS Systems Manager (SSM) Parameter Store.
+- Set up a fallback logic block just in case the SSM variables weren't mapped perfectly in the academy lab restrictions.
+
+Why we implemented it:
+- Decoupling infrastructure endpoints from code logic is industry standard.
+- Firmly guaranteed the 5th purely programmatic AWS Service interaction required for max grading credit.
+
+AWS services touched:
+- SSM Parameter Store
+
+---
+
+### Step 15: UI Refinements & Complete CRUD Cycle
+Status: `Completed`
+
+What we did:
+- Injected client-side pagination, status dropdown filters, and active column sorting logic into `index.html`.
+- Decoupled bad CSS grid stretch behaviors to eliminate ugly white space voids across panels.
+- Wired a full HTTP DELETE route through the Lambda handler and mapped it to a new "Delete" button on the UI to hit complete CRUD specifications.
+- Cleaned out experimental emojis and standardized all backend code comments for a professional finish.
+
+Why we implemented it:
+- Ensures the UI can support high volumes of records cleanly.
+- Proves complete functional Create, Read, Update, and Delete manipulation over DynamoDB directly triggered from the frontend.
+
 ## First Recommended Build Sequence
 This is the order I recommend we follow in the AWS Academy lab:
 

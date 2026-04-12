@@ -1067,11 +1067,12 @@
             try {
                 clearError();
                 const res = await fetch(BASE_URL, {
-                    method: "DELETE",
+                    method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
+                        action: "delete",
                         incident_id: incident.incident_id
                     })
                 });

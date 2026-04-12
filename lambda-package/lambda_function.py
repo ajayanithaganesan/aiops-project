@@ -352,7 +352,20 @@ def lambda_handler(event, context):
         return response(200, {"message": "ok"})
 
     if method == "POST":
-        return update_incident(parse_body(event))
+        body = parse_body(event)
+        
+        # Tunneling DELETE via POST to bypass severe CORS 'AllowMethods' blocks
+        if body.get("action") == "delete":
+            incident_id = body.get("incident_id")
+            if not incident_id:
+                return response(400, {"message": "incident_id is required"})
+            try:
+                table.delete_item(Key={"incident_id": incident_id})
+                return response(200, {"message": "Incident deleted successfully"})
+            except Exception as e:
+                return response(500, {"message": f"Delete failed: {str(e)}"})
+                
+        return update_incident(body)
 
     if method == "DELETE":
         body = parse_body(event)
