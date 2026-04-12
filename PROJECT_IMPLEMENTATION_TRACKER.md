@@ -244,6 +244,63 @@ Evidence / notes:
 
 ---
 
+### Step 0.11: Dynamic CloudWatch Resolution Metrics
+Status: `Completed`
+
+What we did:
+
+- created `count_resolved_incidents()` to dynamically scan DynamoDB for items with `RESOLVED` status
+- updated the CloudWatch `put_metric_data` logic to push the actual total count of resolved incidents rather than a static `+1`
+
+Why this step matters:
+
+- CloudWatch graphs time-series data; sending a flat `1` every time creates a flat line, while pushing an aggregated sum perfectly graphs the growing trend of incident resolutions
+- it forces Lambda to act as an intelligent aggregator rather than a blind event router
+
+Evidence / notes:
+
+- Lambda file: `lambda-package/lambda_function.py`
+- touched services: `DynamoDB`, `CloudWatch`
+
+---
+
+### Step 0.12: Git Source Control and CI/CD Automation
+Status: `Completed`
+
+What we did:
+
+- initialized a local Git repository and created a specialized Python `.gitignore`
+- pushed code to a private GitHub repository (`aiops-project`)
+- created a GitHub Actions workflow (`.github/workflows/deploy.yml`)
+- configured the workflow to zip the `lambda-package` and use `aws lambda update-function-code`
+
+Why this step matters:
+
+- satisfies the project requirement regarding Continuous Integration, Delivery, and Deployment via a private repository
+- saves significant development time by eliminating the need to manually zip and upload code to AWS Learner Lab
+
+Evidence / notes:
+
+- CI/CD config: `.github/workflows/deploy.yml`
+- required secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+
+---
+
+### Step 0.13: Repository Cleanup
+Status: `Completed`
+
+What we did:
+
+- executed `git rm -r` to delete duplicate build directories (`aiops-lambda-deployment-standard`, `lambda-deploy`)
+- removed large unnecessary files like `share.html` and static zip backups
+
+Why this step matters:
+
+- keeps the repository strictly limited to source code preventing bloated git history
+- eliminates confusion about which folder is the active backend (it is firmly `lambda-package`)
+
+---
+
 ### Step 1: Define Final MVP Scope
 Status: `Pending`
 
