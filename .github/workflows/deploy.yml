@@ -31,5 +31,5 @@ jobs:
       - name: Update Lambda Function Code
         run: |
           aws lambda update-function-code \
-            --function-name aiops-lambda \
+            --function-name aiops-ai-analyzer \
             --zip-file fileb://deployment_package.zip
