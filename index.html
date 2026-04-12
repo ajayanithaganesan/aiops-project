@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -228,13 +229,40 @@
             font-weight: 700;
         }
 
-        .HIGH { color: var(--high); background: var(--high-soft); }
-        .MEDIUM { color: var(--medium); background: var(--medium-soft); }
-        .LOW { color: var(--low); background: var(--low-soft); }
-        .WARNING { color: var(--warning); background: var(--warning-soft); }
-        .OPEN { color: var(--open); background: var(--open-soft); }
-        .AWAITING_RESOLUTION { color: var(--awaiting); background: var(--awaiting-soft); }
-        .RESOLVED { color: var(--resolved); background: var(--resolved-soft); }
+        .HIGH {
+            color: var(--high);
+            background: var(--high-soft);
+        }
+
+        .MEDIUM {
+            color: var(--medium);
+            background: var(--medium-soft);
+        }
+
+        .LOW {
+            color: var(--low);
+            background: var(--low-soft);
+        }
+
+        .WARNING {
+            color: var(--warning);
+            background: var(--warning-soft);
+        }
+
+        .OPEN {
+            color: var(--open);
+            background: var(--open-soft);
+        }
+
+        .AWAITING_RESOLUTION {
+            color: var(--awaiting);
+            background: var(--awaiting-soft);
+        }
+
+        .RESOLVED {
+            color: var(--resolved);
+            background: var(--resolved-soft);
+        }
 
         .right-column {
             display: grid;
@@ -386,6 +414,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="dashboard">
         <div id="errorBanner" class="error-banner"></div>
@@ -467,7 +496,8 @@
                     <div class="details-body">
                         <div id="detailsContent">
                             <div class="empty-state">
-                                Choose an incident from the queue to inspect root cause, recommendation, notes, and current status.
+                                Choose an incident from the queue to inspect root cause, recommendation, notes, and
+                                current status.
                             </div>
                         </div>
                     </div>
@@ -535,6 +565,23 @@
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
+        }
+
+        function formatDate(isoString) {
+            if (!isoString || isoString === "-") return "-";
+            try {
+                const date = new Date(isoString);
+                if (isNaN(date.getTime())) return isoString;
+                return date.toLocaleString([], {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                return isoString;
+            }
         }
 
         function prettyStatus(status) {
@@ -662,7 +709,7 @@
                     </td>
                     <td><span class="badge ${escapeHtml(item.severity || "LOW")}">${escapeHtml(item.severity || "LOW")}</span></td>
                     <td><span class="badge ${escapeHtml(item.status || "OPEN")}">${escapeHtml(prettyStatus(item.status || "OPEN"))}</span></td>
-                    <td>${escapeHtml(item.timestamp || "-")}</td>
+                    <td>${escapeHtml(formatDate(item.timestamp))}</td>
                 </tr>
             `).join("");
 
@@ -872,7 +919,7 @@
                     throw new Error(payload.message || "Unable to save incident");
                 }
 
-                showToast("Incident saved to DynamoDB");
+                showToast("Incident submitted successfully");
                 await loadData({ force: true });
             } catch (error) {
                 showError(`Unable to save incident: ${error.message}`);
@@ -885,4 +932,5 @@
         }, POLL_INTERVAL_MS);
     </script>
 </body>
+
 </html>
