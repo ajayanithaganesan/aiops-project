@@ -204,11 +204,14 @@ def create_incident():
 
     table.put_item(Item=incident)
     # 🔥 CloudWatch Metrics
-    push_metric("TotalIncidents", 1)
+    all_incidents = list_incidents()
+    push_metric("TotalIncidents", len(all_incidents))
 
     if severity == "HIGH":
-        push_metric("HighSeverityIncidents", 1)
+        high_severity_count = sum(1 for item in all_incidents if item.get("severity") == "HIGH")
+        push_metric("HighSeverityIncidents", high_severity_count)
         publish_incident_alert(incident)
+        
     return incident
 
 
