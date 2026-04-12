@@ -117,20 +117,31 @@ def publish_incident_alert(incident):
         return
 
     message = {
-        "incident_id": incident.get("incident_id"),
-        "severity": incident.get("severity"),
-        "status": incident.get("status"),
-        "error_type": incident.get("error_type"),
-        "root_cause": incident.get("root_cause"),
-        "recommended_fix": incident.get("recommended_fix"),
-        "timestamp": incident.get("timestamp"),
-    }
-
     try:
+        message = f"""
+🚨 AIOPS HIGH SEVERITY ALERT 🚨
+==================================================
+Severity:    {incident.get('severity', 'UNKNOWN')}
+Status:      {incident.get('status', 'OPEN')}
+Error Type:  {incident.get('error_type', 'Unknown Error')}
+Timestamp:   {incident.get('timestamp', 'Unknown Time')}
+
+📌 ROOT CAUSE ANALYSIS:
+--------------------------------------------------
+{incident.get('root_cause', 'No root cause identified.')}
+
+🔧 RECOMMENDED REMEDIATION:
+--------------------------------------------------
+{incident.get('recommended_fix', 'No recommended fix provided.')}
+
+==================================================
+System Log:  {incident.get('log', 'N/A')}
+Incident ID: {incident.get('incident_id', 'N/A')}
+"""
         publish_response = sns.publish(
             TopicArn=SNS_TOPIC_ARN,
-            Subject=f"AIOps HIGH Incident: {incident.get('error_type', 'Unknown')}",
-            Message=json.dumps(message, indent=2),
+            Subject=f"AIOps Alert: {incident.get('severity')} - {incident.get('error_type')}",
+            Message=message.strip()
         )
         published_at = datetime.datetime.utcnow().isoformat()
         incident["alert_channel"] = "SNS"
