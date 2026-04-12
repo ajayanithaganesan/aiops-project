@@ -116,7 +116,6 @@ def publish_incident_alert(incident):
         record_alert_status(incident["incident_id"], "CONFIG_MISSING")
         return
 
-    message = {
     try:
         message = f"""
 🚨 AIOPS HIGH SEVERITY ALERT 🚨
