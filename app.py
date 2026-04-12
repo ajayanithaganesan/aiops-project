@@ -47,6 +47,19 @@ async def update_incident(request: Request):
         )
 
 
+@app.delete("/api/incidents")
+async def delete_incident(request: Request):
+    try:
+        payload = await request.json()
+        response = requests.delete(LAMBDA_BASE_URL, json=payload, timeout=30)
+        return JSONResponse(status_code=response.status_code, content=response.json())
+    except Exception as e:
+        return JSONResponse(
+            status_code=502,
+            content={"message": f"Unable to reach Lambda backend: {str(e)}"},
+        )
+
+
 @app.post("/analyze")
 async def analyze_log(data: dict):
     log = data.get("log", "")

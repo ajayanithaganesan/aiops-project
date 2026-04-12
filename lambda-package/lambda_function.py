@@ -19,7 +19,7 @@ table = dynamodb.Table("aiops-incidents")
 cloudwatch = boto3.client('cloudwatch')
 ssm = boto3.client("ssm")
 
-# 🚀 5TH PROGRAMMATIC CLOUD SERVICE: AWS SSM PARAMETER STORE
+# AWS SSM PARAMETER STORE
 def get_ssm_parameter(name, fallback_env):
     try:
         response = ssm.get_parameter(Name=name, WithDecryption=False)
@@ -279,11 +279,11 @@ def update_incident(body):
         ReturnValues="ALL_NEW",
     )
 
-    # 🔥 CloudWatch Metric for Resolved Incidents
+    # CloudWatch Metric for Resolved Incidents
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
 
-        # 🗄️ S3 Archiving
+        # S3 Archiving
         if S3_ARCHIVE_BUCKET:
             try:
                 incident_data = updated.get("Attributes", {})
@@ -353,6 +353,17 @@ def lambda_handler(event, context):
 
     if method == "POST":
         return update_incident(parse_body(event))
+
+    if method == "DELETE":
+        body = parse_body(event)
+        incident_id = body.get("incident_id")
+        if not incident_id:
+            return response(400, {"message": "incident_id is required"})
+        try:
+            table.delete_item(Key={"incident_id": incident_id})
+            return response(200, {"message": "Incident deleted successfully"})
+        except Exception as e:
+            return response(500, {"message": f"Delete failed: {str(e)}"})
 
     if method == "GET":
         action = (get_query_param(event, "action", "list") or "list").lower()
