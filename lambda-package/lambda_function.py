@@ -204,12 +204,10 @@ def create_incident():
 
     table.put_item(Item=incident)
     # 🔥 CloudWatch Metrics
-    all_incidents = list_incidents()
-    push_metric("TotalIncidents", len(all_incidents))
+    push_metric("TotalIncidents", 1)
 
     if severity == "HIGH":
-        high_severity_count = sum(1 for item in all_incidents if item.get("severity") == "HIGH")
-        push_metric("HighSeverityIncidents", high_severity_count)
+        push_metric("HighSeverityIncidents", 1)
         publish_incident_alert(incident)
         
     return incident
@@ -222,17 +220,8 @@ def list_incidents():
     return items
 
 def count_resolved_incidents():
-    try:
-        response = table.scan()
-        items = response.get("Items", [])
-
-        resolved_count = sum(1 for item in items if item.get("status") == "RESOLVED")
-
-        return resolved_count
-
-    except Exception as e:
-        print("Error counting resolved incidents:", str(e))
-        return 0
+    # Deprecated: Kept for reference but no longer used for CW metrics due to default Sum behavior.
+    pass
 
 
 def update_incident(body):
@@ -272,8 +261,7 @@ def update_incident(body):
 
     # 🔥 CloudWatch Metric for Resolved Incidents
     if status == "RESOLVED":
-        total_resolved = count_resolved_incidents()
-        push_metric("ResolvedIncidents", total_resolved)
+        push_metric("ResolvedIncidents", 1)
 
         # 🗄️ S3 Archiving
         if S3_ARCHIVE_BUCKET:
