@@ -60,7 +60,8 @@ Analyze the given AWS log and return ONLY valid JSON.
 Rules:
 - Do NOT include explanations outside JSON
 - Do NOT use markdown
-- Keep responses concise and clear
+- Keep the root_cause specific
+- Provide 2 to 3 distinct, detailed, and actionable resolutions in the recommended_fix field. Format them clearly (e.g., '1. ... 2. ...').
 
 Format:
 {{
