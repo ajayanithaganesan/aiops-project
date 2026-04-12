@@ -7,6 +7,7 @@ on:
     paths:
       - 'lambda-package/**'
       - '.github/workflows/deploy.yml'
+      - 'index.html'
   workflow_dispatch:
 
 jobs:
@@ -35,3 +36,7 @@ jobs:
           aws lambda update-function-code \
             --function-name aiops-ai-analyzer \
             --zip-file fileb://deployment_package.zip
+
+      - name: Deploy Frontend to S3
+        run: |
+          aws s3 cp index.html s3://${{ secrets.AWS_S3_FRONTEND_BUCKET }}/index.html --content-type "text/html"
