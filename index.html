@@ -412,6 +412,25 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        .pagination-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-size: 13px;
+            color: var(--muted);
+        }
     </style>
 </head>
 
@@ -425,6 +444,12 @@
                 <p>Monitor AI-triaged incidents, update status, and persist investigation notes in DynamoDB.</p>
             </div>
             <div class="actions">
+                <select id="statusFilter" class="btn" style="background:#fff" onchange="setFilter(this.value)">
+                    <option value="ALL">All Status</option>
+                    <option value="OPEN">Open</option>
+                    <option value="AWAITING_RESOLUTION">Awaiting Resolution</option>
+                    <option value="RESOLVED">Resolved</option>
+                </select>
                 <button class="btn" onclick="loadData()">Refresh</button>
                 <button class="btn btn-primary" onclick="generateIncident()">Generate Incident</button>
             </div>
@@ -484,6 +509,9 @@
                     <div id="tableEmpty" class="empty-state" style="display: none;">
                         No incidents found yet. Generate one to start populating the dashboard.
                     </div>
+                    <div id="tablePagination"
+                        style="display:none; margin-top: 14px; justify-content: space-between; align-items: center;">
+                    </div>
                 </div>
             </div>
 
@@ -511,6 +539,9 @@
                     <div id="recentNotes" class="details-body">
                         <div class="empty-state">No notes have been saved yet.</div>
                     </div>
+                    <div id="notesPagination"
+                        style="display:none; padding: 0 16px 14px; justify-content: space-between; align-items: center;">
+                    </div>
                 </div>
             </div>
         </div>
@@ -534,6 +565,21 @@
         let selectedIncidentId = null;
         let lastIncidentsSignature = "";
         let isLoadingData = false;
+
+        let currentFilter = "ALL";
+        let tablePage = 1;
+        const TABLE_PAGE_SIZE = 8;
+
+        let notesPage = 1;
+        const NOTES_PAGE_SIZE = 4;
+
+        function setFilter(val) {
+            currentFilter = val;
+            tablePage = 1;
+            renderTable();
+        }
+        function changeTablePage(d) { tablePage += d; renderTable(); }
+        function changeNotesPage(d) { notesPage += d; renderRecentNotes(); }
 
         function showToast(message) {
             const toast = document.getElementById("toast");
@@ -691,15 +737,39 @@
         function renderTable() {
             const table = document.getElementById("incidentTable");
             const empty = document.getElementById("tableEmpty");
+            const pag = document.getElementById("tablePagination");
 
-            if (!incidents.length) {
+            let filtered = incidents;
+            if (currentFilter !== "ALL") {
+                filtered = incidents.filter(i => i.status === currentFilter);
+            }
+
+            if (!filtered.length) {
                 table.innerHTML = "";
+                pag.style.display = "none";
                 empty.style.display = "block";
                 return;
             }
 
             empty.style.display = "none";
-            table.innerHTML = incidents.map(item => `
+            pag.style.display = "flex";
+
+            const totalPages = Math.ceil(filtered.length / TABLE_PAGE_SIZE);
+            if (tablePage > totalPages) tablePage = totalPages;
+            if (tablePage < 1) tablePage = 1;
+
+            const startIdx = (tablePage - 1) * TABLE_PAGE_SIZE;
+            const pageItems = filtered.slice(startIdx, startIdx + TABLE_PAGE_SIZE);
+
+            pag.innerHTML = `
+                <div class="page-info">Page ${tablePage} of ${totalPages}</div>
+                <div>
+                    <button class="pagination-btn" ${tablePage === 1 ? 'disabled' : ''} onclick="changeTablePage(-1)">Prev</button>
+                    <button class="pagination-btn" ${tablePage === totalPages ? 'disabled' : ''} onclick="changeTablePage(1)">Next</button>
+                </div>
+            `;
+
+            table.innerHTML = pageItems.map(item => `
                 <tr class="incident-row ${item.incident_id === selectedIncidentId ? "active" : ""}" data-id="${item.incident_id}">
                     <td>
                         <div class="incident-meta">
@@ -795,6 +865,7 @@
 
         function renderRecentNotes() {
             const wrap = document.getElementById("recentNotes");
+            const pag = document.getElementById("notesPagination");
             const allNotes = [];
 
             incidents.forEach(function (item) {
@@ -810,12 +881,29 @@
 
             if (!allNotes.length) {
                 wrap.innerHTML = `<div class="empty-state">No notes have been saved yet.</div>`;
+                pag.style.display = "none";
                 return;
             }
 
+            pag.style.display = "flex";
+            const totalPages = Math.ceil(allNotes.length / NOTES_PAGE_SIZE);
+            if (notesPage > totalPages) notesPage = totalPages;
+            if (notesPage < 1) notesPage = 1;
+
+            const startIdx = (notesPage - 1) * NOTES_PAGE_SIZE;
+            const pageItems = allNotes.slice(startIdx, startIdx + NOTES_PAGE_SIZE);
+
+            pag.innerHTML = `
+                <div class="page-info">Page ${notesPage} of ${totalPages}</div>
+                <div>
+                    <button class="pagination-btn" ${notesPage === 1 ? 'disabled' : ''} onclick="changeNotesPage(-1)">Prev</button>
+                    <button class="pagination-btn" ${notesPage === totalPages ? 'disabled' : ''} onclick="changeNotesPage(1)">Next</button>
+                </div>
+            `;
+
             wrap.innerHTML = `
                 <ul class="notes-list">
-                    ${allNotes.slice(0, 8).map(entry => `
+                    ${pageItems.map(entry => `
                         <li>
                             <strong>${escapeHtml(entry.incident)}</strong><br>
                             ${escapeHtml(entry.note)}<br>
