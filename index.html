@@ -444,12 +444,6 @@
                 <p>Monitor AI-triaged incidents, update status, and persist investigation notes in DynamoDB.</p>
             </div>
             <div class="actions">
-                <select id="statusFilter" class="btn" style="background:#fff" onchange="setFilter(this.value)">
-                    <option value="ALL">All Status</option>
-                    <option value="OPEN">Open</option>
-                    <option value="AWAITING_RESOLUTION">Awaiting Resolution</option>
-                    <option value="RESOLVED">Resolved</option>
-                </select>
                 <button class="btn" onclick="loadData()">Refresh</button>
                 <button class="btn btn-primary" onclick="generateIncident()">Generate Incident</button>
             </div>
@@ -490,9 +484,20 @@
 
         <div class="content-grid">
             <div class="panel">
-                <div class="panel-header">
-                    <h2 class="panel-title">Incident Queue</h2>
-                    <p class="panel-subtitle">Status, severity, and root-cause output for all persisted incidents.</p>
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2 class="panel-title">Incident Queue</h2>
+                        <p class="panel-subtitle">Status, severity, and root-cause output for all persisted incidents.
+                        </p>
+                    </div>
+                    <select id="statusFilter" class="btn"
+                        style="background:#fff; padding: 6px 12px; height: 36px; line-height: 1;"
+                        onchange="setFilter(this.value)">
+                        <option value="ALL">All Incidents</option>
+                        <option value="OPEN">Open</option>
+                        <option value="AWAITING_RESOLUTION">Awaiting Resolution</option>
+                        <option value="RESOLVED">Resolved</option>
+                    </select>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -568,7 +573,7 @@
 
         let currentFilter = "ALL";
         let tablePage = 1;
-        const TABLE_PAGE_SIZE = 8;
+        const TABLE_PAGE_SIZE = 12;
 
         let notesPage = 1;
         const NOTES_PAGE_SIZE = 4;
