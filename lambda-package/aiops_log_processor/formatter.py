@@ -2,6 +2,11 @@ import uuid
 
 
 def build_incident(log, parsed, severity):
+    """
+    Constructs a standardized incident dictionary blueprint for DynamoDB storage.
+    Automatically assigns a uniquely generated incident ID, applies default fallbacks
+    if the AI parser missed structured fields, and initializes the ticket as OPEN.
+    """
     return {
         "incident_id": str(uuid.uuid4()),
         "log": log,

@@ -1,4 +1,9 @@
 def classify_severity(error_type, text):
+    """
+    Inspects the incident log payload for hardcoded critical keywords to programmatically
+    determine the severity level. Defaults smoothly to MEDIUM if no critical infrastructure
+    or basic timeout keywords are positively identified.
+    """
     text = text.lower()
 
     if "timeout" in text:

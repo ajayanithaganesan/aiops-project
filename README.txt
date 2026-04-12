@@ -4,7 +4,7 @@ Author: Ajay Anitha Ganesan
 ---------------------------------------------------------
 1. OVERVIEW
 ---------------------------------------------------------
-This project is a serverless CloudOps dashboard that analyzes AWS logs, identifies root causes, and provides operational remediation steps. It strictly satisfies the 5 programmatic AWS service requirements (DynamoDB, SNS, CloudWatch, S3, SSM) while operating through a seamless, modern HTML/JS interface.
+This project is a serverless CloudOps dashboard that analyzes AWS error logs, identifies root causes, and provides operational remediation steps. It strictly satisfies the 5 programmatic AWS service requirements (DynamoDB, SNS, CloudWatch, S3, SSM) while operating through a seamless, modern HTML/JS interface.
 
 ---------------------------------------------------------
 2. REQUIRED DEPENDENCIES
