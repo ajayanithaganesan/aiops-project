@@ -12,12 +12,14 @@ from aiops_log_processor.severity import classify_severity
 
 dynamodb = boto3.resource("dynamodb")
 sns = boto3.client("sns")
+s3 = boto3.client("s3")
 table = dynamodb.Table("aiops-incidents")
 cloudwatch = boto3.client('cloudwatch')
 
 NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "").strip()
+S3_ARCHIVE_BUCKET = os.environ.get("S3_ARCHIVE_BUCKET", "").strip()
 
 RESPONSE_HEADERS = {
     "Content-Type": "application/json",
@@ -267,6 +269,19 @@ def update_incident(body):
     if status == "RESOLVED":
         total_resolved = count_resolved_incidents()
         push_metric("ResolvedIncidents", total_resolved)
+
+        # 🗄️ S3 Archiving
+        if S3_ARCHIVE_BUCKET:
+            try:
+                incident_data = updated.get("Attributes", {})
+                s3.put_object(
+                    Bucket=S3_ARCHIVE_BUCKET,
+                    Key=f"resolved_incidents/incident_{incident_id}.json",
+                    Body=json.dumps(incident_data, default=str, indent=2),
+                    ContentType="application/json"
+                )
+            except Exception as e:
+                print("S3 Export Error:", str(e))
 
     return response(
         200,
