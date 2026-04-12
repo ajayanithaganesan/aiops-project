@@ -3,6 +3,8 @@ import json
 import os
 import random
 import urllib.request
+import csv
+import io
 
 import boto3
 from aiops_log_processor.formatter import build_incident
@@ -289,7 +291,50 @@ def update_incident(body):
     )
 
 
+def generate_daily_csv_report():
+    if not S3_ARCHIVE_BUCKET:
+        return response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
+
+    items = list_incidents()
+    resolved_items = [item for item in items if item.get("status") == "RESOLVED"]
+
+    csv_buffer = io.StringIO()
+    writer = csv.writer(csv_buffer)
+    
+    # Headers
+    writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
+    
+    for item in resolved_items:
+        writer.writerow([
+            item.get("incident_id", ""),
+            item.get("timestamp", ""),
+            item.get("severity", ""),
+            item.get("error_type", ""),
+            item.get("root_cause", ""),
+            item.get("recommended_fix", ""),
+            len(item.get("notes", []))
+        ])
+    
+    date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    s3_key = f"reports/resolved_incidents_{date_str}.csv"
+    
+    try:
+        s3.put_object(
+            Bucket=S3_ARCHIVE_BUCKET,
+            Key=s3_key,
+            Body=csv_buffer.getvalue(),
+            ContentType="text/csv"
+        )
+        return response(200, {"message": f"CSV Report Generated at {s3_key}"})
+    except Exception as e:
+        print("S3 Report Error:", str(e))
+        return response(500, {"message": str(e)})
+
 def lambda_handler(event, context):
+    # EventBridge Scheduler Catch
+    if event.get("source") == "eventbridge" or event.get("action") == "generate_report":
+        return generate_daily_csv_report()
+
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
 
     if method == "OPTIONS":
