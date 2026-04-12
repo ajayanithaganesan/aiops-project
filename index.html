@@ -143,6 +143,7 @@
             display: grid;
             grid-template-columns: 1.8fr 1fr;
             gap: 18px;
+            align-items: start;
         }
 
         .panel {
@@ -167,9 +168,14 @@
             font-size: 14px;
         }
 
-        .table-wrap,
         .details-body {
             padding: 12px 16px 18px;
+        }
+
+        .table-wrap {
+            padding: 0 16px 18px;
+            max-height: calc(100vh - 310px);
+            overflow-y: auto;
         }
 
         table {
@@ -576,7 +582,7 @@
 
         let currentFilter = "ALL";
         let tablePage = 1;
-        const TABLE_PAGE_SIZE = 12;
+        const TABLE_PAGE_SIZE = 30;
         let currentSort = { col: "timestamp", asc: false };
 
         let notesPage = 1;
