@@ -30,7 +30,7 @@ def get_ssm_parameter(name, fallback_env):
     try:
         response = ssm.get_parameter(Name=name, WithDecryption=False)
         return response["Parameter"]["Value"].strip()
-    except:
+    except Exception:
         return os.environ.get(fallback_env, "").strip()
 
 # Configuration values and URL's
@@ -39,7 +39,7 @@ LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/ma
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
 S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
 
-# Fixing Decimal numbers for JSON 
+# Fixing Decimal numbers for JSON
 def scrub_decimals(data):
     if isinstance(data, list):
         return [scrub_decimals(i) for i in data]
@@ -77,14 +77,14 @@ def push_metric(metric_name, value):
             Namespace='AIOps-App',
             MetricData=[{'MetricName': metric_name, 'Value': value, 'Unit': 'Count'}]
         )
-    except:
+    except Exception:
         pass  # Don't crash if metrics fail
 
 # Parsing request body
 def parse_body(event):
     try:
         return json.loads(event.get("body", "{}"))
-    except:
+    except json.JSONDecodeError:
         return {}
 
 # Getting query parameter
@@ -101,7 +101,7 @@ def get_logs():
 def record_alert_status(incident_id, status, published_at=None, message_id=None, error=None):
     update = "SET alert_channel = :channel, alert_status = :status"
     values = {":channel": "SNS", ":status": status}
-    
+
     if published_at:
         update += ", alert_published_at = :published_at"
         values[":published_at"] = published_at
@@ -111,7 +111,7 @@ def record_alert_status(incident_id, status, published_at=None, message_id=None,
     if error:
         update += ", alert_error = :error"
         values[":error"] = error
-    
+
     table.update_item(
         Key={"incident_id": incident_id},
         UpdateExpression=update,
@@ -122,7 +122,7 @@ def record_alert_status(incident_id, status, published_at=None, message_id=None,
 def format_remediation(recommended_fix):
     if not recommended_fix:
         return "No specific remediation steps provided."
-    
+
     # Handling list input
     if isinstance(recommended_fix, list):
         steps = []
@@ -134,7 +134,7 @@ def format_remediation(recommended_fix):
             if clean and clean not in ['', '[]', '{}']:
                 steps.append(f"{i}. {clean}")
         return '\n'.join(steps) if steps else "No valid remediation steps provided."
-    
+
     # Handling string input
     if isinstance(recommended_fix, str):
         cleaned = recommended_fix.strip()
@@ -142,7 +142,7 @@ def format_remediation(recommended_fix):
             cleaned = cleaned[1:-1]
         cleaned = cleaned.strip('"').strip("'")
         cleaned = cleaned.replace('\\n', '\n')
-        
+
         # Splitting into lines and clean
         lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
         if lines:
@@ -152,7 +152,7 @@ def format_remediation(recommended_fix):
             # Adding numbers
             return '\n'.join([f"{i+1}. {line}" for i, line in enumerate(lines)])
         return cleaned
-    
+
     return str(recommended_fix)
 
 # Sending email alert via SNS
@@ -160,19 +160,19 @@ def publish_incident_alert(incident):
     severity = incident.get("severity")
     if severity not in ["HIGH", "MEDIUM"]:
         return
-    
+
     if not SNS_TOPIC_ARN:
         record_alert_status(incident["incident_id"], "CONFIG_MISSING")
         return
-    
+
     try:
         if severity == "HIGH":
             emoji, urgency = "🚨🚨🚨", "CRITICAL - Immediate Action Required"
         else:
             emoji, urgency = "⚠️⚠️", "URGENT - Action Required Soon"
-        
+
         remediation = format_remediation(incident.get('recommended_fix', ''))
-        
+
         message = f"""
 {emoji} AIOPS {severity} SEVERITY ALERT {emoji}
 ==================================================
@@ -217,7 +217,7 @@ def call_ai(log_message):
         data=json.dumps({"log": log_message}).encode(),
         headers={"Content-Type": "application/json"}
     )
-    
+
     for attempt in range(2):
         try:
             with urllib.request.urlopen(req, timeout=15) as response:
@@ -227,11 +227,11 @@ def call_ai(log_message):
                 if "analysis" in result:
                     return extract_from_text(result["analysis"])
                 return result
-            except:
+            except json.JSONDecodeError:
                 return extract_from_text(raw)
         except Exception as e:
             print(f"Attempt {attempt+1} failed: {e}")
-    
+
     raise RuntimeError("AI failed after retries")
 
 # Creating new incident
@@ -239,18 +239,18 @@ def create_incident():
     # Getting random log
     logs = get_logs()
     log_message = random.choice(logs)["log"]
-    
+
     # Analyzing with AI
     try:
         parsed = call_ai(log_message)
-    except:
+    except Exception:
         parsed = {
             "error_type": "Timeout",
             "severity": "HIGH",
             "root_cause": "AI service not reachable",
             "recommended_fix": "Check ngrok connection",
         }
-    
+
     # Building incident
     severity = normalize_severity(
         parsed.get("severity"),
@@ -258,15 +258,15 @@ def create_incident():
         log_message,
         parsed.get("root_cause", "")
     )
-    
+
     incident = build_incident(log_message, parsed, severity)
     incident["timestamp"] = datetime.datetime.utcnow().isoformat()
     incident["notes"] = []
-    
+
     # Saving incident to DynamoDB
     table.put_item(Item=incident)
     push_metric("TotalIncidents", 1)
-    
+
     # Sending alert for HIGH/MEDIUM severity incidents
     if severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
@@ -274,7 +274,7 @@ def create_incident():
         else:
             push_metric("MediumSeverityIncidents", 1)
         publish_incident_alert(incident)
-    
+
     return incident
 
 # Getting all incidents
@@ -289,25 +289,25 @@ def update_incident(body):
     incident_id = body.get("incident_id")
     status = (body.get("status") or "OPEN").strip().upper().replace(" ", "_")
     note = (body.get("note") or "").strip()
-    
+
     if not incident_id:
         return create_response(400, {"message": "incident_id is required"})
-    
+
     allowed = {"OPEN", "AWAITING_RESOLUTION", "RESOLVED"}
     if status not in allowed:
         return create_response(400, {"message": "Invalid status"})
-    
+
     # Updating DynamoDB after incident status change
     update = "SET #status = :status, updated_at = :updated_at"
     values = {":status": status, ":updated_at": datetime.datetime.utcnow().isoformat()}
     names = {"#status": "status"}
-    
+
     if note:
         note_entry = f"{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} - {note}"
         update += ", notes = list_append(if_not_exists(notes, :empty), :note)"
         values[":note"] = [note_entry]
         values[":empty"] = []
-    
+
     updated = table.update_item(
         Key={"incident_id": incident_id},
         UpdateExpression=update,
@@ -315,7 +315,7 @@ def update_incident(body):
         ExpressionAttributeNames=names,
         ReturnValues="ALL_NEW"
     )
-    
+
     # If incident is resolved, send metric and archive
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
@@ -327,9 +327,9 @@ def update_incident(body):
                     Body=json.dumps(scrub_decimals(updated.get("Attributes", {})), indent=2),
                     ContentType="application/json"
                 )
-            except:
+            except Exception:
                 pass
-    
+
     return create_response(200, {
         "message": "Incident updated",
         "incident": updated.get("Attributes", {})
@@ -339,15 +339,15 @@ def update_incident(body):
 def generate_daily_csv_report():
     if not S3_ARCHIVE_BUCKET:
         return create_response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
-    
+
     items = list_incidents()
     resolved = [i for i in items if i.get("status") == "RESOLVED"]
-    
+
     # Creating CSV
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
-    
+
     for item in resolved:
         fix = item.get("recommended_fix", "")
         if isinstance(fix, list):
@@ -361,11 +361,11 @@ def generate_daily_csv_report():
             fix,
             len(item.get("notes", []))
         ])
-    
+
     # Uploading report to S3 bucket
     date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     key = f"reports/resolved_incidents_{date}.csv"
-    
+
     try:
         s3.put_object(Bucket=S3_ARCHIVE_BUCKET, Key=key, Body=output.getvalue(), ContentType="text/csv")
         return create_response(200, {"message": f"CSV Report Generated at {key}"})
@@ -377,13 +377,13 @@ def lambda_handler(event, _context):
     # Handling EventBridge schedule for reports
     if event.get("source") == "eventbridge" or event.get("action") == "generate_report":
         return generate_daily_csv_report()
-    
+
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-    
+
     # Handling CORS
     if method == "OPTIONS":
         return create_response(200, {"message": "ok"})
-    
+
     # Handling POST requests
     if method == "POST":
         body = parse_body(event)
@@ -397,7 +397,7 @@ def lambda_handler(event, _context):
             except Exception as e:
                 return create_response(500, {"message": f"Delete failed: {str(e)}"})
         return update_incident(body)
-    
+
     # Handling DELETE requests
     if method == "DELETE":
         body = parse_body(event)
@@ -409,7 +409,7 @@ def lambda_handler(event, _context):
             return create_response(200, {"message": "Incident deleted successfully"})
         except Exception as e:
             return create_response(500, {"message": f"Delete failed: {str(e)}"})
-    
+
     # Handling GET requests
     if method == "GET":
         action = (get_query_param(event, "action", "list") or "list").lower()
@@ -421,5 +421,5 @@ def lambda_handler(event, _context):
                 "items": list_incidents()
             })
         return create_response(200, list_incidents())
-    
+
     return create_response(405, {"message": "Method not allowed"})
