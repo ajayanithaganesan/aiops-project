@@ -6,6 +6,7 @@ import urllib.request
 import csv
 import io
 import decimal
+import re
 
 import boto3
 from aiops_log_processor.formatter import build_incident
@@ -52,7 +53,7 @@ def response(status_code, body):
     return {
         "statusCode": status_code,
         "headers": RESPONSE_HEADERS,
-        "body": json.dumps(scrub_decimals(body)),  # ✅ Fixed: Decimal serialization
+        "body": json.dumps(scrub_decimals(body)),
     }
 
 def normalize_severity(value, error_type, log_message, root_cause):
@@ -123,8 +124,104 @@ def record_alert_status(incident_id, status, published_at=None, message_id=None,
         ExpressionAttributeValues=expression_attribute_values,
     )
 
+def format_remediation(recommended_fix):
+    """
+    Format the recommended fix to be clean and readable.
+    Handles strings, lists, and other formats without double numbering.
+    """
+    if not recommended_fix:
+        return "No specific remediation steps provided."
+    
+    # If it's already a list, process each item
+    if isinstance(recommended_fix, list):
+        formatted_steps = []
+        for idx, step in enumerate(recommended_fix, 1):
+            # Convert to string and clean
+            step_clean = str(step).strip()
+            
+            # Remove outer brackets and quotes
+            step_clean = step_clean.strip('[]').strip('"').strip("'")
+            
+            # Remove any existing numbering to avoid double numbering
+            step_clean = re.sub(r'^\d+\.\s*', '', step_clean)
+            
+            # Remove markdown list markers
+            step_clean = re.sub(r'^[\*\-\+]\s*', '', step_clean)
+            
+            # Replace escaped newlines with spaces
+            step_clean = step_clean.replace('\\n', ' ').replace('\n', ' ')
+            
+            # Remove multiple spaces
+            step_clean = ' '.join(step_clean.split())
+            
+            if step_clean and step_clean not in ['', '[]', '{}']:
+                formatted_steps.append(f"{idx}. {step_clean}")
+        
+        if formatted_steps:
+            return '\n'.join(formatted_steps)
+        else:
+            return "No valid remediation steps provided."
+    
+    # If it's a string
+    if isinstance(recommended_fix, str):
+        cleaned = recommended_fix.strip()
+        
+        # Remove outer brackets if present (for string representation of list)
+        if cleaned.startswith('[') and cleaned.endswith(']'):
+            cleaned = cleaned[1:-1]
+        
+        # Remove quotes
+        cleaned = cleaned.strip('"').strip("'")
+        
+        # Replace escaped newlines with actual newlines
+        cleaned = cleaned.replace('\\n', '\n')
+        
+        # Split into lines
+        lines = cleaned.split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if line contains multiple numbered steps (like "1. x 2. y")
+            if re.search(r'\d+\.', line) and not line.startswith(('1.', '2.', '3.', '4.', '5.')):
+                # Split by number patterns
+                parts = re.split(r'(?=\d+\.)', line)
+                for part in parts:
+                    part = part.strip()
+                    if part:
+                        # Clean and add
+                        part_clean = re.sub(r'^\d+\.\s*', '', part)
+                        if part_clean:
+                            formatted_lines.append(part)
+            else:
+                # Remove existing numbering for lines that will be renumbered
+                if formatted_lines and not any(line.startswith(f"{i}.") for i in range(1, 10)):
+                    # This is a continuation
+                    formatted_lines[-1] = f"{formatted_lines[-1]} {line}"
+                else:
+                    formatted_lines.append(line)
+        
+        # If we have formatted lines, return them
+        if formatted_lines:
+            # Check if lines are already numbered
+            if any(re.match(r'^\d+\.', line) for line in formatted_lines):
+                return '\n'.join(formatted_lines)
+            else:
+                # Add numbering
+                numbered = [f"{idx+1}. {line}" for idx, line in enumerate(formatted_lines)]
+                return '\n'.join(numbered)
+        
+        # Fallback: return cleaned string
+        return cleaned if cleaned else "No specific remediation steps provided."
+    
+    # Fallback for other types
+    return str(recommended_fix)
+
 def publish_incident_alert(incident):
-    # ✅ Updated: Trigger for both HIGH and MEDIUM priority incidents
+    # Trigger for both HIGH and MEDIUM priority incidents
     severity = incident.get("severity")
     if severity not in ["HIGH", "MEDIUM"]:
         return
@@ -143,7 +240,15 @@ def publish_incident_alert(incident):
         else:  # MEDIUM
             emoji = "⚠️⚠️"
             urgency = "URGENT - Action Required Soon"
-            
+        
+        # Format the remediation steps properly
+        recommended_fix_raw = incident.get('recommended_fix', 'No recommended fix provided.')
+        formatted_remediation = format_remediation(recommended_fix_raw)
+        
+        # Debug logging
+        print(f"Raw remediation for {severity} incident: {recommended_fix_raw}")
+        print(f"Formatted remediation: {formatted_remediation}")
+        
         message = f"""
 {emoji} AIOPS {severity} SEVERITY ALERT {emoji}
 ==================================================
@@ -159,7 +264,7 @@ Timestamp:   {incident.get('timestamp', 'Unknown Time')}
 
 🔧 RECOMMENDED REMEDIATION:
 --------------------------------------------------
-{incident.get('recommended_fix', 'No recommended fix provided.')}
+{formatted_remediation}
 
 ==================================================
 System Log:  {incident.get('log', 'N/A')}
@@ -245,7 +350,7 @@ def create_incident():
     # 🔥 CloudWatch Metrics
     push_metric("TotalIncidents", 1)
 
-    # ✅ Updated: Send alert for both HIGH and MEDIUM
+    # Send alert for both HIGH and MEDIUM
     if severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
             push_metric("HighSeverityIncidents", 1)
@@ -336,13 +441,20 @@ def generate_daily_csv_report():
     writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
     
     for item in resolved_items:
+        # Format the recommended fix for CSV as well
+        recommended_fix = item.get("recommended_fix", "")
+        if isinstance(recommended_fix, list):
+            recommended_fix = ' | '.join(str(step) for step in recommended_fix)
+        elif recommended_fix:
+            recommended_fix = str(recommended_fix).replace('\n', ' ').replace(',', ';')
+            
         writer.writerow([
             item.get("incident_id", ""),
             item.get("timestamp", ""),
             item.get("severity", ""),
             item.get("error_type", ""),
             item.get("root_cause", ""),
-            item.get("recommended_fix", ""),
+            recommended_fix,
             len(item.get("notes", []))
         ])
     

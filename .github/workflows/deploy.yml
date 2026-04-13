@@ -18,6 +18,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Pylint
+        run: |
+          pip install pylint
+
+      - name: Run Pylint Analysis
+        run: |
+          cd lambda-package
+          pylint *.py --fail-under=5 --exit-zero 
+          --errors-only --disable=missing-docstring,
+          line-too-long,too-many-arguments,too-many-branches,
+          too-many-statements,too-many-locals,too-many-return-statements,
+          invalid-name,consider-using-f-string,import-error,no-name-in-module
+        continue-on-error: false
+
       - name: Create deployment package
         run: |
           cd lambda-package
