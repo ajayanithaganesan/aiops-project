@@ -1,4 +1,4 @@
-name: CI/CD for AIOps Project
+name: CI/CD for AIOps Dashboard Project
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  pylint:
+  Pylint-Analysis:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,10 +38,10 @@ jobs:
             --fail-under=7 \
             --disable=missing-docstring,line-too-long,too-many-arguments,too-many-branches,too-many-statements,too-many-locals,too-many-return-statements,invalid-name,consider-using-f-string,no-name-in-module
 
-  deploy:
+  Deployment:
     name: Deploy to Lambda and S3
     runs-on: ubuntu-latest
-    needs: pylint
+    needs: Pylint-Analysis
     if: github.ref == 'refs/heads/main'
 
     steps:

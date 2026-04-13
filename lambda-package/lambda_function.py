@@ -515,3 +515,4 @@ def lambda_handler(event, _context):
         return create_response(200, list_incidents())
 
     return create_response(405, {"message": "Method not allowed"})
+    
