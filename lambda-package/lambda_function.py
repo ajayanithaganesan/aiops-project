@@ -9,7 +9,6 @@ import csv
 import io
 import decimal
 import re
-import requests
 
 import boto3
 from aiops_log_processor.formatter import build_incident
@@ -40,10 +39,6 @@ LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/ma
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
 S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
 
-# Grok API Configuration
-GROK_API_KEY = os.environ.get("GROK_API_KEY", "")
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-
 # Fixing Decimal numbers for JSON
 def scrub_decimals(data):
     if isinstance(data, list):
@@ -70,7 +65,7 @@ def push_metric(metric_name, value):
             MetricData=[{'MetricName': metric_name, 'Value': value, 'Unit': 'Count'}]
         )
     except Exception:
-        pass
+        pass  # Don't crash if metrics fail
 
 # Parsing request body
 def parse_body(event):
@@ -202,57 +197,8 @@ Incident ID: {incident.get('incident_id', 'N/A')}
         record_alert_status(incident["incident_id"], "FAILED", error=str(e))
         push_metric("AIFailures", 1)
 
-# Calling Grok API as fallback if ngrok fails
-def call_grok_api(log_message):
-    """Call Grok API as fallback when Ngrok fails"""
-    prompt = f"""Analyze this AWS error log and return ONLY valid JSON.
-
-Format:
-{{
-  "error_type": "",
-  "root_cause": "",
-  "recommended_fix": ""
-}}
-
-Rules:
-- Do NOT include severity in the response
-- Provide 3-4 actionable steps in recommended_fix
-- Keep root_cause specific and technical
-
-Log: {log_message}"""
-
-    headers = {
-        "Authorization": f"Bearer {GROK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "grok-4.1-fast",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.3
-    }
-    
-    response = requests.post(GROK_API_URL, json=payload, headers=headers, timeout=30)
-    response.raise_for_status()
-    
-    result = response.json()
-    ai_response = result["choices"][0]["message"]["content"]
-    
-    # Clean markdown if present
-    if ai_response.startswith('```json'):
-        ai_response = ai_response[7:]
-    if ai_response.startswith('```'):
-        ai_response = ai_response[3:]
-    if ai_response.endswith('```'):
-        ai_response = ai_response[:-3]
-    
-    return json.loads(ai_response)
-
-# Calling local AI via Ngrok to analyze log as primary endpoint
-def call_ngrok_ai(log_message):
-    """Calling Ngrok AI endpoint"""
+# Calling local AI via Ngrok to analyze log
+def call_ai(log_message):
     req = urllib.request.Request(
         NGROK_URL,
         data=json.dumps({"log": log_message}).encode(),
@@ -271,33 +217,9 @@ def call_ngrok_ai(log_message):
             except json.JSONDecodeError:
                 return extract_from_text(raw)
         except Exception as e:
-            print(f"Ngrok attempt {attempt+1} failed: {e}")
+            print(f"Attempt {attempt+1} failed: {e}")
 
-    raise RuntimeError("Ngrok AI failed after retries")
-
-# Main AI function with fallback
-def call_ai(log_message):
-    """Try Ngrok first, fallback to Grok API if Ngrok fails"""
-    try:
-        print("Attempting to use Ngrok AI...")
-        result = call_ngrok_ai(log_message)
-        print("✅ Ngrok AI succeeded")
-        return result
-    except Exception as e:
-        print(f"Ngrok AI failed: {e}")
-        print("Falling back to Grok API...")
-        try:
-            result = call_grok_api(log_message)
-            print("✅ Grok API succeeded as fallback")
-            return result
-        except Exception as grok_error:
-            print(f"Grok API also failed: {grok_error}")
-            # Ultimate fallback
-            return {
-                "error_type": "AIServiceUnavailable",
-                "root_cause": f"Both Ngrok and Grok AI services failed. Ngrok error: {str(e)}, Grok error: {str(grok_error)}",
-                "recommended_fix": "1. Check Ngrok tunnel is running\n2. Verify Grok API key is valid\n3. Check internet connectivity\n4. Restart services and try again"
-            }
+    raise RuntimeError("AI failed after retries")
 
 # Creating new incident
 def create_incident():
@@ -305,15 +227,14 @@ def create_incident():
     logs = get_logs()
     log_message = random.choice(logs)["log"]
 
-    # Analyzing with AI (Ngrok with Grok fallback)
+    # Analyzing with AI
     try:
         parsed = call_ai(log_message)
-    except Exception as exc:
-        print("AI ERROR:", str(exc))
+    except Exception:
         parsed = {
             "error_type": "Timeout",
             "root_cause": "AI service not reachable",
-            "recommended_fix": "Check ngrok connection or Grok API key",
+            "recommended_fix": "Check ngrok connection",
         }
 
     # Using custom severity library to determine severity
@@ -379,7 +300,7 @@ def update_incident(body):
         ReturnValues="ALL_NEW"
     )
 
-    # If incident is resolved, send metric and archive to S3
+    # If incident is resolved, send metric and archive to S3 bucket
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
         if S3_ARCHIVE_BUCKET:
@@ -446,7 +367,7 @@ def lambda_handler(event, _context):
     # Handling CORS
     if method == "OPTIONS":
         return create_response(200, {"message": "ok"})
-    
+
     # Handling POST requests
     if method == "POST":
         body = parse_body(event)
