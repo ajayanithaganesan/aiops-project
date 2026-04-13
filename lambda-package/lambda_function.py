@@ -5,6 +5,7 @@ import random
 import urllib.request
 import csv
 import io
+import decimal
 
 import boto3
 from aiops_log_processor.formatter import build_incident
@@ -37,13 +38,23 @@ RESPONSE_HEADERS = {
     "Content-Type": "application/json",
 }
 
+# 🔧 Decimal Scrubber - Converts DynamoDB Decimals to int/float for JSON serialization
+def scrub_decimals(data):
+    if isinstance(data, list):
+        return [scrub_decimals(i) for i in data]
+    elif isinstance(data, dict):
+        return {k: scrub_decimals(v) for k, v in data.items()}
+    elif isinstance(data, decimal.Decimal):
+        return int(data) if data % 1 == 0 else float(data)
+    return data
 
 def response(status_code, body):
     return {
         "statusCode": status_code,
         "headers": RESPONSE_HEADERS,
-        "body": json.dumps(body),
+        "body": json.dumps(scrub_decimals(body)),  # ✅ Fixed: Decimal serialization
     }
+
 def normalize_severity(value, error_type, log_message, root_cause):
     raw_severity = (value or "").upper()
 
@@ -79,16 +90,13 @@ def parse_body(event):
     except json.JSONDecodeError:
         return {}
 
-
 def get_query_param(event, key, default=None):
     params = event.get("queryStringParameters") or {}
     return params.get(key, default)
 
-
 def get_logs():
     with urllib.request.urlopen(LOG_API) as response_handle:
         return json.loads(response_handle.read().decode())
-
 
 def record_alert_status(incident_id, status, published_at=None, message_id=None, error=None):
     update_expression = "SET alert_channel = :channel, alert_status = :status"
@@ -115,9 +123,10 @@ def record_alert_status(incident_id, status, published_at=None, message_id=None,
         ExpressionAttributeValues=expression_attribute_values,
     )
 
-
 def publish_incident_alert(incident):
-    if incident.get("severity") != "HIGH":
+    # ✅ Updated: Trigger for both HIGH and MEDIUM priority incidents
+    severity = incident.get("severity")
+    if severity not in ["HIGH", "MEDIUM"]:
         return
 
     if not SNS_TOPIC_ARN:
@@ -127,9 +136,18 @@ def publish_incident_alert(incident):
         return
 
     try:
+        # Customize emoji and urgency based on severity
+        if severity == "HIGH":
+            emoji = "🚨🚨🚨"
+            urgency = "CRITICAL - Immediate Action Required"
+        else:  # MEDIUM
+            emoji = "⚠️⚠️"
+            urgency = "URGENT - Action Required Soon"
+            
         message = f"""
-🚨 AIOPS HIGH SEVERITY ALERT 🚨
+{emoji} AIOPS {severity} SEVERITY ALERT {emoji}
 ==================================================
+Urgency:     {urgency}
 Severity:    {incident.get('severity', 'UNKNOWN')}
 Status:      {incident.get('status', 'OPEN')}
 Error Type:  {incident.get('error_type', 'Unknown Error')}
@@ -149,7 +167,7 @@ Incident ID: {incident.get('incident_id', 'N/A')}
 """
         publish_response = sns.publish(
             TopicArn=SNS_TOPIC_ARN,
-            Subject=f"AIOps Alert: {incident.get('severity')} - {incident.get('error_type')}",
+            Subject=f"AIOps Alert: {severity} - {incident.get('error_type')}",
             Message=message.strip()
         )
         published_at = datetime.datetime.utcnow().isoformat()
@@ -163,13 +181,15 @@ Incident ID: {incident.get('incident_id', 'N/A')}
             published_at=published_at,
             message_id=publish_response.get("MessageId"),
         )
+        print(f"✅ Alert published for {severity} severity incident: {incident['incident_id']}")
+        
     except Exception as exc:
         incident["alert_channel"] = "SNS"
         incident["alert_status"] = "FAILED"
         incident["alert_error"] = str(exc)
         record_alert_status(incident["incident_id"], "FAILED", error=str(exc))
         push_metric("AIFailures", 1)
-
+        print(f"❌ Failed to publish alert for {severity} incident: {str(exc)}")
 
 def call_ai(log_message):
     req = urllib.request.Request(
@@ -195,7 +215,6 @@ def call_ai(log_message):
             print(f"Attempt {attempt+1} failed:", str(e))
 
     raise Exception("AI failed after retries")
-
 
 def create_incident():
     logs = get_logs()
@@ -226,12 +245,15 @@ def create_incident():
     # 🔥 CloudWatch Metrics
     push_metric("TotalIncidents", 1)
 
-    if severity == "HIGH":
-        push_metric("HighSeverityIncidents", 1)
+    # ✅ Updated: Send alert for both HIGH and MEDIUM
+    if severity in ["HIGH", "MEDIUM"]:
+        if severity == "HIGH":
+            push_metric("HighSeverityIncidents", 1)
+        else:
+            push_metric("MediumSeverityIncidents", 1)
         publish_incident_alert(incident)
         
     return incident
-
 
 def list_incidents():
     db_response = table.scan()
@@ -242,7 +264,6 @@ def list_incidents():
 def count_resolved_incidents():
     # Deprecated: Kept for reference but no longer used for CW metrics due to default Sum behavior.
     pass
-
 
 def update_incident(body):
     incident_id = body.get("incident_id")
@@ -290,7 +311,7 @@ def update_incident(body):
                 s3.put_object(
                     Bucket=S3_ARCHIVE_BUCKET,
                     Key=f"resolved_incidents/incident_{incident_id}.json",
-                    Body=json.dumps(incident_data, default=str, indent=2),
+                    Body=json.dumps(scrub_decimals(incident_data), default=str, indent=2),
                     ContentType="application/json"
                 )
             except Exception as e:
@@ -300,7 +321,6 @@ def update_incident(body):
         200,
         {"message": "Incident updated", "incident": updated.get("Attributes", {})},
     )
-
 
 def generate_daily_csv_report():
     if not S3_ARCHIVE_BUCKET:

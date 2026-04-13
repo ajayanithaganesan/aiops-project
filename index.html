@@ -445,7 +445,6 @@
                 <p>Monitor incidents, Find Recommended fixes, update status, and store investigation notes.</p>
             </div>
             <div class="actions">
-                <button class="btn" onclick="loadData()">Refresh</button>
                 <button class="btn btn-primary" onclick="generateIncident()">Generate Incident</button>
             </div>
         </div>
@@ -568,7 +567,7 @@
                 : DEFAULT_REMOTE_API_URL
         );
 
-        const POLL_INTERVAL_MS = 5000;
+        const POLL_INTERVAL_MS = 10000;
 
         let incidents = [];
         let selectedIncidentId = null;
