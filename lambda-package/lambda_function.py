@@ -9,6 +9,7 @@ import csv
 import io
 import decimal
 import re
+import requests
 
 import boto3
 from aiops_log_processor.formatter import build_incident
@@ -33,8 +34,11 @@ def get_ssm_parameter(name, fallback_env):
     except Exception:
         return os.environ.get(fallback_env, "").strip()
 
-# Configuration values and URL's
-NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
+# Grok API Configuration
+GROK_API_KEY = os.environ.get("GROK_API_KEY", "")
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+
+# Configuration values
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
 S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
@@ -78,7 +82,7 @@ def push_metric(metric_name, value):
             MetricData=[{'MetricName': metric_name, 'Value': value, 'Unit': 'Count'}]
         )
     except Exception:
-        pass  # Don't crash if metrics fail
+        pass
 
 # Parsing request body
 def parse_body(event):
@@ -123,7 +127,6 @@ def format_remediation(recommended_fix):
     if not recommended_fix:
         return "No specific remediation steps provided."
 
-    # Handling list input
     if isinstance(recommended_fix, list):
         steps = []
         for i, step in enumerate(recommended_fix, 1):
@@ -135,7 +138,6 @@ def format_remediation(recommended_fix):
                 steps.append(f"{i}. {clean}")
         return '\n'.join(steps) if steps else "No valid remediation steps provided."
 
-    # Handling string input
     if isinstance(recommended_fix, str):
         cleaned = recommended_fix.strip()
         if cleaned.startswith('[') and cleaned.endswith(']'):
@@ -143,13 +145,10 @@ def format_remediation(recommended_fix):
         cleaned = cleaned.strip('"').strip("'")
         cleaned = cleaned.replace('\\n', '\n')
 
-        # Splitting into lines and clean
         lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
         if lines:
-            # Checking if already numbered
             if any(re.match(r'^\d+\.', line) for line in lines):
                 return '\n'.join(lines)
-            # Adding numbers
             return '\n'.join([f"{i+1}. {line}" for i, line in enumerate(lines)])
         return cleaned
 
@@ -210,48 +209,56 @@ Incident ID: {incident.get('incident_id', 'N/A')}
         record_alert_status(incident["incident_id"], "FAILED", error=str(e))
         push_metric("AIFailures", 1)
 
-# Calling local AI via Ngrok to analyze log
+# Calling Grok API to analyze log
 def call_ai(log_message):
-    req = urllib.request.Request(
-        NGROK_URL,
-        data=json.dumps({"log": log_message}).encode(),
-        headers={"Content-Type": "application/json"}
-    )
+    prompt = f"""Analyze this AWS error log and return ONLY valid JSON.
 
-    for attempt in range(2):
-        try:
-            with urllib.request.urlopen(req, timeout=15) as response:
-                raw = response.read().decode()
-            try:
-                result = json.loads(raw)
-                if "analysis" in result:
-                    return extract_from_text(result["analysis"])
-                return result
-            except json.JSONDecodeError:
-                return extract_from_text(raw)
-        except Exception as e:
-            print(f"Attempt {attempt+1} failed: {e}")
+Format:
+{{
+  "error_type": "short error category",
+  "severity": "HIGH or MEDIUM or LOW",
+  "root_cause": "brief explanation",
+  "recommended_fix": "1. step one\\n2. step two\\n3. step three"
+}}
 
-    raise RuntimeError("AI failed after retries")
+Log: {log_message}"""
+
+    headers = {
+        "Authorization": f"Bearer {GROK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "grok-4.1-fast",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3
+    }
+    
+    response = requests.post(GROK_API_URL, json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    
+    result = response.json()
+    ai_response = result["choices"][0]["message"]["content"]
+    
+    # Clean markdown if present
+    if ai_response.startswith('```json'):
+        ai_response = ai_response[7:]
+    if ai_response.startswith('```'):
+        ai_response = ai_response[3:]
+    if ai_response.endswith('```'):
+        ai_response = ai_response[:-3]
+    
+    return json.loads(ai_response)
 
 # Creating new incident
 def create_incident():
-    # Getting random log
     logs = get_logs()
     log_message = random.choice(logs)["log"]
 
-    # Analyzing with AI
-    try:
-        parsed = call_ai(log_message)
-    except Exception:
-        parsed = {
-            "error_type": "Timeout",
-            "severity": "HIGH",
-            "root_cause": "AI service not reachable",
-            "recommended_fix": "Check ngrok connection",
-        }
+    parsed = call_ai(log_message)
 
-    # Building incident
     severity = normalize_severity(
         parsed.get("severity"),
         parsed.get("error_type", "Unknown"),
@@ -263,11 +270,9 @@ def create_incident():
     incident["timestamp"] = datetime.datetime.utcnow().isoformat()
     incident["notes"] = []
 
-    # Saving incident to DynamoDB
     table.put_item(Item=incident)
     push_metric("TotalIncidents", 1)
 
-    # Sending alert for HIGH/MEDIUM severity incidents
     if severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
             push_metric("HighSeverityIncidents", 1)
@@ -297,7 +302,6 @@ def update_incident(body):
     if status not in allowed:
         return create_response(400, {"message": "Invalid status"})
 
-    # Updating DynamoDB after incident status change
     update = "SET #status = :status, updated_at = :updated_at"
     values = {":status": status, ":updated_at": datetime.datetime.utcnow().isoformat()}
     names = {"#status": "status"}
@@ -316,7 +320,6 @@ def update_incident(body):
         ReturnValues="ALL_NEW"
     )
 
-    # If incident is resolved, send metric and archive
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
         if S3_ARCHIVE_BUCKET:
@@ -335,7 +338,7 @@ def update_incident(body):
         "incident": updated.get("Attributes", {})
     })
 
-# Generating daily CSV report every 12 hours
+# Generating daily CSV report
 def generate_daily_csv_report():
     if not S3_ARCHIVE_BUCKET:
         return create_response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
@@ -343,7 +346,6 @@ def generate_daily_csv_report():
     items = list_incidents()
     resolved = [i for i in items if i.get("status") == "RESOLVED"]
 
-    # Creating CSV
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
@@ -362,7 +364,6 @@ def generate_daily_csv_report():
             len(item.get("notes", []))
         ])
 
-    # Uploading report to S3 bucket
     date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     key = f"reports/resolved_incidents_{date}.csv"
 
@@ -374,17 +375,14 @@ def generate_daily_csv_report():
 
 # Main Lambda handler
 def lambda_handler(event, _context):
-    # Handling EventBridge schedule for reports
     if event.get("source") == "eventbridge" or event.get("action") == "generate_report":
         return generate_daily_csv_report()
 
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
 
-    # Handling CORS
     if method == "OPTIONS":
         return create_response(200, {"message": "ok"})
 
-    # Handling POST requests
     if method == "POST":
         body = parse_body(event)
         if body.get("action") == "delete":
@@ -398,7 +396,6 @@ def lambda_handler(event, _context):
                 return create_response(500, {"message": f"Delete failed: {str(e)}"})
         return update_incident(body)
 
-    # Handling DELETE requests
     if method == "DELETE":
         body = parse_body(event)
         incident_id = body.get("incident_id")
@@ -410,7 +407,6 @@ def lambda_handler(event, _context):
         except Exception as e:
             return create_response(500, {"message": f"Delete failed: {str(e)}"})
 
-    # Handling GET requests
     if method == "GET":
         action = (get_query_param(event, "action", "list") or "list").lower()
         if action == "generate":
@@ -423,3 +419,4 @@ def lambda_handler(event, _context):
         return create_response(200, list_incidents())
 
     return create_response(405, {"message": "Method not allowed"})
+    
