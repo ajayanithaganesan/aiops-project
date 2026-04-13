@@ -1,4 +1,4 @@
-"""AIOps Lambda Function - Incident Management and Alerting System"""
+"""AIOps Lambda Function - Recommendation & Incident Management System"""
 
 import datetime
 import json
@@ -15,37 +15,32 @@ from aiops_log_processor.formatter import build_incident
 from aiops_log_processor.parser import extract_from_text
 from aiops_log_processor.severity import classify_severity
 
-
+# Connecting to AWS services
 dynamodb = boto3.resource("dynamodb")
 sns = boto3.client("sns")
 s3 = boto3.client("s3")
-table = dynamodb.Table("aiops-incidents")
 cloudwatch = boto3.client('cloudwatch')
 ssm = boto3.client("ssm")
 
+# Our DynamoDB table to store Incident data
+table = dynamodb.Table("aiops-incidents")
 
+# Getting configuration from AWS SSM service
 def get_ssm_parameter(name, fallback_env):
-    """Fetch parameter from AWS SSM Parameter Store with fallback to env vars"""
     try:
         response = ssm.get_parameter(Name=name, WithDecryption=False)
         return response["Parameter"]["Value"].strip()
-    except Exception as e:
-        print(f"SSM Fetch missed for {name}. Falling back to env vars. Error: {str(e)}")
+    except:
         return os.environ.get(fallback_env, "").strip()
 
-
+# Configuration values and URL's
 NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
 S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
 
-RESPONSE_HEADERS = {
-    "Content-Type": "application/json",
-}
-
-
+# Fixing Decimal numbers for JSON 
 def scrub_decimals(data):
-    """Convert DynamoDB Decimal objects to int/float for JSON serialization"""
     if isinstance(data, list):
         return [scrub_decimals(i) for i in data]
     if isinstance(data, dict):
@@ -54,429 +49,344 @@ def scrub_decimals(data):
         return int(data) if data % 1 == 0 else float(data)
     return data
 
-
+# Sending HTTP response
 def create_response(status_code, body):
-    """Create HTTP response with proper JSON serialization"""
     return {
         "statusCode": status_code,
-        "headers": RESPONSE_HEADERS,
+        "headers": {"Content-Type": "application/json"},
         "body": json.dumps(scrub_decimals(body)),
     }
 
-
+# Parsing severity from AI response
 def normalize_severity(value, error_type, log_message, root_cause):
-    """Normalize severity value from various formats"""
-    raw_severity = (value or "").upper()
-
-    if "HIGH" in raw_severity:
+    raw = (value or "").upper()
+    if "HIGH" in raw:
         return "HIGH"
-    if "MEDIUM" in raw_severity:
+    if "MEDIUM" in raw:
         return "MEDIUM"
-    if "LOW" in raw_severity:
+    if "LOW" in raw:
         return "LOW"
-    if "WARNING" in raw_severity:
+    if "WARNING" in raw:
         return "WARNING"
     return classify_severity(error_type, f"{root_cause} {log_message}")
 
-
+# Sending metric to CloudWatch
 def push_metric(metric_name, value):
-    """Push custom metric to CloudWatch"""
     try:
         cloudwatch.put_metric_data(
             Namespace='AIOps-App',
-            MetricData=[
-                {
-                    'MetricName': metric_name,
-                    'Value': value,
-                    'Unit': 'Count'
-                }
-            ]
+            MetricData=[{'MetricName': metric_name, 'Value': value, 'Unit': 'Count'}]
         )
-    except Exception as e:
-        print("CloudWatch Metric Error:", str(e))
+    except:
+        pass  # Don't crash if metrics fail
 
-
+# Parsing request body
 def parse_body(event):
-    """Parse JSON body from API Gateway event"""
-    raw_body = event.get("body") or "{}"
     try:
-        return json.loads(raw_body)
-    except json.JSONDecodeError:
+        return json.loads(event.get("body", "{}"))
+    except:
         return {}
 
-
+# Getting query parameter
 def get_query_param(event, key, default=None):
-    """Extract query parameter from API Gateway event"""
     params = event.get("queryStringParameters") or {}
     return params.get(key, default)
 
-
+# Fetching logs from URL
 def get_logs():
-    """Fetch logs from remote API"""
-    with urllib.request.urlopen(LOG_API) as response_handle:
-        return json.loads(response_handle.read().decode())
+    with urllib.request.urlopen(LOG_API) as response:
+        return json.loads(response.read().decode())
 
-
+# Tracking alert status in DynamoDB
 def record_alert_status(incident_id, status, published_at=None, message_id=None, error=None):
-    """Record alert delivery status in DynamoDB"""
-    update_expression = "SET alert_channel = :channel, alert_status = :status"
-    expression_attribute_values = {
-        ":channel": "SNS",
-        ":status": status,
-    }
-
+    update = "SET alert_channel = :channel, alert_status = :status"
+    values = {":channel": "SNS", ":status": status}
+    
     if published_at:
-        update_expression += ", alert_published_at = :published_at"
-        expression_attribute_values[":published_at"] = published_at
-
+        update += ", alert_published_at = :published_at"
+        values[":published_at"] = published_at
     if message_id:
-        update_expression += ", alert_message_id = :message_id"
-        expression_attribute_values[":message_id"] = message_id
-
+        update += ", alert_message_id = :message_id"
+        values[":message_id"] = message_id
     if error:
-        update_expression += ", alert_error = :error"
-        expression_attribute_values[":error"] = error
-
+        update += ", alert_error = :error"
+        values[":error"] = error
+    
     table.update_item(
         Key={"incident_id": incident_id},
-        UpdateExpression=update_expression,
-        ExpressionAttributeValues=expression_attribute_values,
+        UpdateExpression=update,
+        ExpressionAttributeValues=values
     )
 
-
+# Clean up remediation text for email notification
 def format_remediation(recommended_fix):
-    """Format the recommended fix to be clean and readable"""
     if not recommended_fix:
         return "No specific remediation steps provided."
-
-    # If it's already a list, process each item
+    
+    # Handling list input
     if isinstance(recommended_fix, list):
-        formatted_steps = []
-        for idx, step in enumerate(recommended_fix, 1):
-            step_clean = str(step).strip()
-            step_clean = step_clean.strip('[]').strip('"').strip("'")
-            step_clean = re.sub(r'^\d+\.\s*', '', step_clean)
-            step_clean = re.sub(r'^[\*\-\+]\s*', '', step_clean)
-            step_clean = step_clean.replace('\\n', ' ').replace('\n', ' ')
-            step_clean = ' '.join(step_clean.split())
-
-            if step_clean and step_clean not in ['', '[]', '{}']:
-                formatted_steps.append(f"{idx}. {step_clean}")
-
-        if formatted_steps:
-            return '\n'.join(formatted_steps)
-        return "No valid remediation steps provided."
-
-    # If it's a string
+        steps = []
+        for i, step in enumerate(recommended_fix, 1):
+            clean = str(step).strip().strip('[]').strip('"').strip("'")
+            clean = re.sub(r'^\d+\.\s*', '', clean)
+            clean = clean.replace('\\n', ' ').replace('\n', ' ')
+            clean = ' '.join(clean.split())
+            if clean and clean not in ['', '[]', '{}']:
+                steps.append(f"{i}. {clean}")
+        return '\n'.join(steps) if steps else "No valid remediation steps provided."
+    
+    # Handling string input
     if isinstance(recommended_fix, str):
         cleaned = recommended_fix.strip()
-
         if cleaned.startswith('[') and cleaned.endswith(']'):
             cleaned = cleaned[1:-1]
-
         cleaned = cleaned.strip('"').strip("'")
         cleaned = cleaned.replace('\\n', '\n')
-
-        lines = cleaned.split('\n')
-        formatted_lines = []
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            if re.search(r'\d+\.', line) and not line.startswith(('1.', '2.', '3.', '4.', '5.')):
-                parts = re.split(r'(?=\d+\.)', line)
-                for part in parts:
-                    part = part.strip()
-                    if part:
-                        part_clean = re.sub(r'^\d+\.\s*', '', part)
-                        if part_clean:
-                            formatted_lines.append(part)
-            else:
-                if formatted_lines and not any(line.startswith(f"{i}.") for i in range(1, 10)):
-                    formatted_lines[-1] = f"{formatted_lines[-1]} {line}"
-                else:
-                    formatted_lines.append(line)
-
-        if formatted_lines:
-            if any(re.match(r'^\d+\.', line) for line in formatted_lines):
-                return '\n'.join(formatted_lines)
-            numbered = [f"{idx+1}. {line}" for idx, line in enumerate(formatted_lines)]
-            return '\n'.join(numbered)
-
-        return cleaned if cleaned else "No specific remediation steps provided."
-
+        
+        # Splitting into lines and clean
+        lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
+        if lines:
+            # Checking if already numbered
+            if any(re.match(r'^\d+\.', line) for line in lines):
+                return '\n'.join(lines)
+            # Adding numbers
+            return '\n'.join([f"{i+1}. {line}" for i, line in enumerate(lines)])
+        return cleaned
+    
     return str(recommended_fix)
 
-
+# Sending email alert via SNS
 def publish_incident_alert(incident):
-    """Publish incident alert to SNS for HIGH and MEDIUM severity"""
     severity = incident.get("severity")
     if severity not in ["HIGH", "MEDIUM"]:
         return
-
+    
     if not SNS_TOPIC_ARN:
-        incident["alert_channel"] = "SNS"
-        incident["alert_status"] = "CONFIG_MISSING"
         record_alert_status(incident["incident_id"], "CONFIG_MISSING")
         return
-
+    
     try:
         if severity == "HIGH":
-            emoji = "🚨🚨🚨"
-            urgency = "CRITICAL - Immediate Action Required"
+            emoji, urgency = "🚨🚨🚨", "CRITICAL - Immediate Action Required"
         else:
-            emoji = "⚠️⚠️"
-            urgency = "URGENT - Action Required Soon"
-
-        recommended_fix_raw = incident.get('recommended_fix', 'No recommended fix provided.')
-        formatted_remediation = format_remediation(recommended_fix_raw)
-
-        print(f"Raw remediation for {severity} incident: {recommended_fix_raw}")
-        print(f"Formatted remediation: {formatted_remediation}")
-
+            emoji, urgency = "⚠️⚠️", "URGENT - Action Required Soon"
+        
+        remediation = format_remediation(incident.get('recommended_fix', ''))
+        
         message = f"""
 {emoji} AIOPS {severity} SEVERITY ALERT {emoji}
 ==================================================
-Urgency:     {urgency}
-Severity:    {incident.get('severity', 'UNKNOWN')}
-Status:      {incident.get('status', 'OPEN')}
-Error Type:  {incident.get('error_type', 'Unknown Error')}
-Timestamp:   {incident.get('timestamp', 'Unknown Time')}
+Urgency: {urgency}
+Severity: {incident.get('severity', 'UNKNOWN')}
+Status: {incident.get('status', 'OPEN')}
+Error Type: {incident.get('error_type', 'Unknown Error')}
+Timestamp: {incident.get('timestamp', 'Unknown Time')}
 
+==================================================
 📌 ROOT CAUSE ANALYSIS:
 --------------------------------------------------
 {incident.get('root_cause', 'No root cause identified.')}
 
-🔧 RECOMMENDED REMEDIATION:
+==================================================
+🔧 RECOMMENDED FIX:
 --------------------------------------------------
-{formatted_remediation}
+{remediation}
 
 ==================================================
-System Log:  {incident.get('log', 'N/A')}
+System Log: {incident.get('log', 'N/A')}
 Incident ID: {incident.get('incident_id', 'N/A')}
 """
-        publish_response = sns.publish(
+        response = sns.publish(
             TopicArn=SNS_TOPIC_ARN,
             Subject=f"AIOps Alert: {severity} - {incident.get('error_type')}",
             Message=message.strip()
         )
-        published_at = datetime.datetime.utcnow().isoformat()
-        incident["alert_channel"] = "SNS"
-        incident["alert_status"] = "PUBLISHED"
-        incident["alert_published_at"] = published_at
-        incident["alert_message_id"] = publish_response.get("MessageId")
         record_alert_status(
-            incident["incident_id"],
-            "PUBLISHED",
-            published_at=published_at,
-            message_id=publish_response.get("MessageId"),
+            incident["incident_id"], "PUBLISHED",
+            published_at=datetime.datetime.utcnow().isoformat(),
+            message_id=response.get("MessageId")
         )
-        print(f"✅ Alert published for {severity} severity incident: {incident['incident_id']}")
-
-    except Exception as exc:
-        incident["alert_channel"] = "SNS"
-        incident["alert_status"] = "FAILED"
-        incident["alert_error"] = str(exc)
-        record_alert_status(incident["incident_id"], "FAILED", error=str(exc))
+    except Exception as e:
+        record_alert_status(incident["incident_id"], "FAILED", error=str(e))
         push_metric("AIFailures", 1)
-        print(f"❌ Failed to publish alert for {severity} incident: {str(exc)}")
 
-
+# Calling local AI via Ngrok to analyze log
 def call_ai(log_message):
-    """Call AI service for log analysis"""
     req = urllib.request.Request(
         NGROK_URL,
-        data=json.dumps({"log": log_message}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        data=json.dumps({"log": log_message}).encode(),
+        headers={"Content-Type": "application/json"}
     )
-
+    
     for attempt in range(2):
         try:
-            with urllib.request.urlopen(req, timeout=15) as response_handle:
-                raw_response = response_handle.read().decode("utf-8")
-
+            with urllib.request.urlopen(req, timeout=15) as response:
+                raw = response.read().decode()
             try:
-                ai_result = json.loads(raw_response)
-                if "analysis" in ai_result:
-                    return extract_from_text(ai_result["analysis"])
-                return ai_result
-            except json.JSONDecodeError:
-                return extract_from_text(raw_response)
-
+                result = json.loads(raw)
+                if "analysis" in result:
+                    return extract_from_text(result["analysis"])
+                return result
+            except:
+                return extract_from_text(raw)
         except Exception as e:
-            print(f"Attempt {attempt+1} failed:", str(e))
-
+            print(f"Attempt {attempt+1} failed: {e}")
+    
     raise RuntimeError("AI failed after retries")
 
-
+# Creating new incident
 def create_incident():
-    """Create new incident by analyzing random log entry"""
+    # Getting random log
     logs = get_logs()
     log_message = random.choice(logs)["log"]
-
+    
+    # Analyzing with AI
     try:
         parsed = call_ai(log_message)
-    except Exception as exc:
-        print("AI ERROR:", str(exc))
+    except:
         parsed = {
             "error_type": "Timeout",
             "severity": "HIGH",
             "root_cause": "AI service not reachable",
-            "recommended_fix": "Check local AI / ngrok connection",
+            "recommended_fix": "Check ngrok connection",
         }
-
-    error_type = parsed.get("error_type") or "Unknown"
-    root_cause = parsed.get("root_cause") or "Not identified"
+    
+    # Building incident
     severity = normalize_severity(
-        parsed.get("severity"), error_type, log_message, root_cause
+        parsed.get("severity"),
+        parsed.get("error_type", "Unknown"),
+        log_message,
+        parsed.get("root_cause", "")
     )
-
+    
     incident = build_incident(log_message, parsed, severity)
     incident["timestamp"] = datetime.datetime.utcnow().isoformat()
     incident["notes"] = []
-
+    
+    # Saving incident to DynamoDB
     table.put_item(Item=incident)
     push_metric("TotalIncidents", 1)
-
+    
+    # Sending alert for HIGH/MEDIUM severity incidents
     if severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
             push_metric("HighSeverityIncidents", 1)
         else:
             push_metric("MediumSeverityIncidents", 1)
         publish_incident_alert(incident)
-
+    
     return incident
 
-
+# Getting all incidents
 def list_incidents():
-    """Retrieve all incidents from DynamoDB"""
-    db_response = table.scan()
-    items = db_response.get("Items", [])
-    items.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+    response = table.scan()
+    items = response.get("Items", [])
+    items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return items
 
-
+# Updating incident status
 def update_incident(body):
-    """Update incident status and add notes"""
     incident_id = body.get("incident_id")
     status = (body.get("status") or "OPEN").strip().upper().replace(" ", "_")
     note = (body.get("note") or "").strip()
-
+    
     if not incident_id:
         return create_response(400, {"message": "incident_id is required"})
-
-    allowed_statuses = {"OPEN", "AWAITING_RESOLUTION", "RESOLVED"}
-    if status not in allowed_statuses:
+    
+    allowed = {"OPEN", "AWAITING_RESOLUTION", "RESOLVED"}
+    if status not in allowed:
         return create_response(400, {"message": "Invalid status"})
-
-    update_expression = "SET #status = :status, updated_at = :updated_at"
-    expression_attribute_values = {
-        ":status": status,
-        ":updated_at": datetime.datetime.utcnow().isoformat(),
-    }
-    expression_attribute_names = {"#status": "status"}
-
+    
+    # Updating DynamoDB after incident status change
+    update = "SET #status = :status, updated_at = :updated_at"
+    values = {":status": status, ":updated_at": datetime.datetime.utcnow().isoformat()}
+    names = {"#status": "status"}
+    
     if note:
-        note_entry = (
-            f"{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} - {note}"
-        )
-        update_expression += ", notes = list_append(if_not_exists(notes, :empty), :note)"
-        expression_attribute_values[":note"] = [note_entry]
-        expression_attribute_values[":empty"] = []
-
+        note_entry = f"{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')} - {note}"
+        update += ", notes = list_append(if_not_exists(notes, :empty), :note)"
+        values[":note"] = [note_entry]
+        values[":empty"] = []
+    
     updated = table.update_item(
         Key={"incident_id": incident_id},
-        UpdateExpression=update_expression,
-        ExpressionAttributeValues=expression_attribute_values,
-        ExpressionAttributeNames=expression_attribute_names,
-        ReturnValues="ALL_NEW",
+        UpdateExpression=update,
+        ExpressionAttributeValues=values,
+        ExpressionAttributeNames=names,
+        ReturnValues="ALL_NEW"
     )
-
+    
+    # If incident is resolved, send metric and archive
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
-
         if S3_ARCHIVE_BUCKET:
             try:
-                incident_data = updated.get("Attributes", {})
                 s3.put_object(
                     Bucket=S3_ARCHIVE_BUCKET,
                     Key=f"resolved_incidents/incident_{incident_id}.json",
-                    Body=json.dumps(scrub_decimals(incident_data), default=str, indent=2),
+                    Body=json.dumps(scrub_decimals(updated.get("Attributes", {})), indent=2),
                     ContentType="application/json"
                 )
-            except Exception as e:
-                print("S3 Export Error:", str(e))
+            except:
+                pass
+    
+    return create_response(200, {
+        "message": "Incident updated",
+        "incident": updated.get("Attributes", {})
+    })
 
-    return create_response(
-        200,
-        {"message": "Incident updated", "incident": updated.get("Attributes", {})},
-    )
-
-
+# Generating daily CSV report every 12 hours
 def generate_daily_csv_report():
-    """Generate daily CSV report of resolved incidents"""
     if not S3_ARCHIVE_BUCKET:
         return create_response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
-
+    
     items = list_incidents()
-    resolved_items = [item for item in items if item.get("status") == "RESOLVED"]
-
-    csv_buffer = io.StringIO()
-    writer = csv.writer(csv_buffer)
-
-    writer.writerow([
-        "Incident ID", "Timestamp", "Severity", "Error Type",
-        "Root Cause", "Recommended Fix", "Notes Count"
-    ])
-
-    for item in resolved_items:
-        recommended_fix = item.get("recommended_fix", "")
-        if isinstance(recommended_fix, list):
-            recommended_fix = ' | '.join(str(step) for step in recommended_fix)
-        elif recommended_fix:
-            recommended_fix = str(recommended_fix).replace('\n', ' ').replace(',', ';')
-
+    resolved = [i for i in items if i.get("status") == "RESOLVED"]
+    
+    # Creating CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
+    
+    for item in resolved:
+        fix = item.get("recommended_fix", "")
+        if isinstance(fix, list):
+            fix = ' | '.join(str(s) for s in fix)
         writer.writerow([
             item.get("incident_id", ""),
             item.get("timestamp", ""),
             item.get("severity", ""),
             item.get("error_type", ""),
             item.get("root_cause", ""),
-            recommended_fix,
+            fix,
             len(item.get("notes", []))
         ])
-
-    date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    s3_key = f"reports/resolved_incidents_{date_str}.csv"
-
+    
+    # Uploading report to S3 bucket
+    date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    key = f"reports/resolved_incidents_{date}.csv"
+    
     try:
-        s3.put_object(
-            Bucket=S3_ARCHIVE_BUCKET,
-            Key=s3_key,
-            Body=csv_buffer.getvalue(),
-            ContentType="text/csv"
-        )
-        return create_response(200, {"message": f"CSV Report Generated at {s3_key}"})
+        s3.put_object(Bucket=S3_ARCHIVE_BUCKET, Key=key, Body=output.getvalue(), ContentType="text/csv")
+        return create_response(200, {"message": f"CSV Report Generated at {key}"})
     except Exception as e:
-        print("S3 Report Error:", str(e))
         return create_response(500, {"message": str(e)})
 
-
+# Main Lambda handler
 def lambda_handler(event, _context):
-    """Main Lambda handler for API Gateway events"""
+    # Handling EventBridge schedule for reports
     if event.get("source") == "eventbridge" or event.get("action") == "generate_report":
         return generate_daily_csv_report()
-
+    
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-
+    
+    # Handling CORS
     if method == "OPTIONS":
         return create_response(200, {"message": "ok"})
-
+    
+    # Handling POST requests
     if method == "POST":
         body = parse_body(event)
-
         if body.get("action") == "delete":
             incident_id = body.get("incident_id")
             if not incident_id:
@@ -486,9 +396,9 @@ def lambda_handler(event, _context):
                 return create_response(200, {"message": "Incident deleted successfully"})
             except Exception as e:
                 return create_response(500, {"message": f"Delete failed: {str(e)}"})
-
         return update_incident(body)
-
+    
+    # Handling DELETE requests
     if method == "DELETE":
         body = parse_body(event)
         incident_id = body.get("incident_id")
@@ -499,20 +409,17 @@ def lambda_handler(event, _context):
             return create_response(200, {"message": "Incident deleted successfully"})
         except Exception as e:
             return create_response(500, {"message": f"Delete failed: {str(e)}"})
-
+    
+    # Handling GET requests
     if method == "GET":
         action = (get_query_param(event, "action", "list") or "list").lower()
         if action == "generate":
             incident = create_incident()
-            return create_response(
-                200,
-                {
-                    "message": "Incident generated",
-                    "incident": incident,
-                    "items": list_incidents(),
-                },
-            )
+            return create_response(200, {
+                "message": "Incident generated",
+                "incident": incident,
+                "items": list_incidents()
+            })
         return create_response(200, list_incidents())
-
-    return create_response(405, {"message": "Method not allowed"})
     
+    return create_response(405, {"message": "Method not allowed"})
