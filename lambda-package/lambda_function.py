@@ -57,19 +57,6 @@ def create_response(status_code, body):
         "body": json.dumps(scrub_decimals(body)),
     }
 
-# Parsing severity from AI response
-def normalize_severity(value, error_type, log_message, root_cause):
-    raw = (value or "").upper()
-    if "HIGH" in raw:
-        return "HIGH"
-    if "MEDIUM" in raw:
-        return "MEDIUM"
-    if "LOW" in raw:
-        return "LOW"
-    if "WARNING" in raw:
-        return "WARNING"
-    return classify_severity(error_type, f"{root_cause} {log_message}")
-
 # Sending metric to CloudWatch
 def push_metric(metric_name, value):
     try:
@@ -246,17 +233,14 @@ def create_incident():
     except Exception:
         parsed = {
             "error_type": "Timeout",
-            "severity": "HIGH",
             "root_cause": "AI service not reachable",
             "recommended_fix": "Check ngrok connection",
         }
 
-    # Building incident
-    severity = normalize_severity(
-        parsed.get("severity"),
+    # Using custom severity library to determine severity
+    severity = classify_severity(
         parsed.get("error_type", "Unknown"),
-        log_message,
-        parsed.get("root_cause", "")
+        f"{parsed.get('root_cause', '')} {log_message}"
     )
 
     incident = build_incident(log_message, parsed, severity)
