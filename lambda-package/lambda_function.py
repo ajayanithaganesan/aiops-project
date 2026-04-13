@@ -1,3 +1,5 @@
+"""AIOps Lambda Function - Incident Management and Alerting System"""
+
 import datetime
 import json
 import os
@@ -21,14 +23,16 @@ table = dynamodb.Table("aiops-incidents")
 cloudwatch = boto3.client('cloudwatch')
 ssm = boto3.client("ssm")
 
-# AWS SSM PARAMETER STORE
+
 def get_ssm_parameter(name, fallback_env):
+    """Fetch parameter from AWS SSM Parameter Store with fallback to env vars"""
     try:
         response = ssm.get_parameter(Name=name, WithDecryption=False)
         return response["Parameter"]["Value"].strip()
     except Exception as e:
         print(f"SSM Fetch missed for {name}. Falling back to env vars. Error: {str(e)}")
         return os.environ.get(fallback_env, "").strip()
+
 
 NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
@@ -39,24 +43,29 @@ RESPONSE_HEADERS = {
     "Content-Type": "application/json",
 }
 
-# 🔧 Decimal Scrubber - Converts DynamoDB Decimals to int/float for JSON serialization
+
 def scrub_decimals(data):
+    """Convert DynamoDB Decimal objects to int/float for JSON serialization"""
     if isinstance(data, list):
         return [scrub_decimals(i) for i in data]
-    elif isinstance(data, dict):
+    if isinstance(data, dict):
         return {k: scrub_decimals(v) for k, v in data.items()}
-    elif isinstance(data, decimal.Decimal):
+    if isinstance(data, decimal.Decimal):
         return int(data) if data % 1 == 0 else float(data)
     return data
 
-def response(status_code, body):
+
+def create_response(status_code, body):
+    """Create HTTP response with proper JSON serialization"""
     return {
         "statusCode": status_code,
         "headers": RESPONSE_HEADERS,
         "body": json.dumps(scrub_decimals(body)),
     }
 
+
 def normalize_severity(value, error_type, log_message, root_cause):
+    """Normalize severity value from various formats"""
     raw_severity = (value or "").upper()
 
     if "HIGH" in raw_severity:
@@ -69,7 +78,9 @@ def normalize_severity(value, error_type, log_message, root_cause):
         return "WARNING"
     return classify_severity(error_type, f"{root_cause} {log_message}")
 
+
 def push_metric(metric_name, value):
+    """Push custom metric to CloudWatch"""
     try:
         cloudwatch.put_metric_data(
             Namespace='AIOps-App',
@@ -84,22 +95,30 @@ def push_metric(metric_name, value):
     except Exception as e:
         print("CloudWatch Metric Error:", str(e))
 
+
 def parse_body(event):
+    """Parse JSON body from API Gateway event"""
     raw_body = event.get("body") or "{}"
     try:
         return json.loads(raw_body)
     except json.JSONDecodeError:
         return {}
 
+
 def get_query_param(event, key, default=None):
+    """Extract query parameter from API Gateway event"""
     params = event.get("queryStringParameters") or {}
     return params.get(key, default)
 
+
 def get_logs():
+    """Fetch logs from remote API"""
     with urllib.request.urlopen(LOG_API) as response_handle:
         return json.loads(response_handle.read().decode())
 
+
 def record_alert_status(incident_id, status, published_at=None, message_id=None, error=None):
+    """Record alert delivery status in DynamoDB"""
     update_expression = "SET alert_channel = :channel, alert_status = :status"
     expression_attribute_values = {
         ":channel": "SNS",
@@ -124,104 +143,75 @@ def record_alert_status(incident_id, status, published_at=None, message_id=None,
         ExpressionAttributeValues=expression_attribute_values,
     )
 
+
 def format_remediation(recommended_fix):
-    """
-    Format the recommended fix to be clean and readable.
-    Handles strings, lists, and other formats without double numbering.
-    """
+    """Format the recommended fix to be clean and readable"""
     if not recommended_fix:
         return "No specific remediation steps provided."
-    
+
     # If it's already a list, process each item
     if isinstance(recommended_fix, list):
         formatted_steps = []
         for idx, step in enumerate(recommended_fix, 1):
-            # Convert to string and clean
             step_clean = str(step).strip()
-            
-            # Remove outer brackets and quotes
             step_clean = step_clean.strip('[]').strip('"').strip("'")
-            
-            # Remove any existing numbering to avoid double numbering
             step_clean = re.sub(r'^\d+\.\s*', '', step_clean)
-            
-            # Remove markdown list markers
             step_clean = re.sub(r'^[\*\-\+]\s*', '', step_clean)
-            
-            # Replace escaped newlines with spaces
             step_clean = step_clean.replace('\\n', ' ').replace('\n', ' ')
-            
-            # Remove multiple spaces
             step_clean = ' '.join(step_clean.split())
-            
+
             if step_clean and step_clean not in ['', '[]', '{}']:
                 formatted_steps.append(f"{idx}. {step_clean}")
-        
+
         if formatted_steps:
             return '\n'.join(formatted_steps)
-        else:
-            return "No valid remediation steps provided."
-    
+        return "No valid remediation steps provided."
+
     # If it's a string
     if isinstance(recommended_fix, str):
         cleaned = recommended_fix.strip()
-        
-        # Remove outer brackets if present (for string representation of list)
+
         if cleaned.startswith('[') and cleaned.endswith(']'):
             cleaned = cleaned[1:-1]
-        
-        # Remove quotes
+
         cleaned = cleaned.strip('"').strip("'")
-        
-        # Replace escaped newlines with actual newlines
         cleaned = cleaned.replace('\\n', '\n')
-        
-        # Split into lines
+
         lines = cleaned.split('\n')
         formatted_lines = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
-            # Check if line contains multiple numbered steps (like "1. x 2. y")
+
             if re.search(r'\d+\.', line) and not line.startswith(('1.', '2.', '3.', '4.', '5.')):
-                # Split by number patterns
                 parts = re.split(r'(?=\d+\.)', line)
                 for part in parts:
                     part = part.strip()
                     if part:
-                        # Clean and add
                         part_clean = re.sub(r'^\d+\.\s*', '', part)
                         if part_clean:
                             formatted_lines.append(part)
             else:
-                # Remove existing numbering for lines that will be renumbered
                 if formatted_lines and not any(line.startswith(f"{i}.") for i in range(1, 10)):
-                    # This is a continuation
                     formatted_lines[-1] = f"{formatted_lines[-1]} {line}"
                 else:
                     formatted_lines.append(line)
-        
-        # If we have formatted lines, return them
+
         if formatted_lines:
-            # Check if lines are already numbered
             if any(re.match(r'^\d+\.', line) for line in formatted_lines):
                 return '\n'.join(formatted_lines)
-            else:
-                # Add numbering
-                numbered = [f"{idx+1}. {line}" for idx, line in enumerate(formatted_lines)]
-                return '\n'.join(numbered)
-        
-        # Fallback: return cleaned string
+            numbered = [f"{idx+1}. {line}" for idx, line in enumerate(formatted_lines)]
+            return '\n'.join(numbered)
+
         return cleaned if cleaned else "No specific remediation steps provided."
-    
-    # Fallback for other types
+
     return str(recommended_fix)
 
+
 def publish_incident_alert(incident):
-    # Trigger for both HIGH and MEDIUM priority incidents
+    """Publish incident alert to SNS for HIGH and MEDIUM severity"""
     severity = incident.get("severity")
     if severity not in ["HIGH", "MEDIUM"]:
         return
@@ -233,22 +223,19 @@ def publish_incident_alert(incident):
         return
 
     try:
-        # Customize emoji and urgency based on severity
         if severity == "HIGH":
             emoji = "🚨🚨🚨"
             urgency = "CRITICAL - Immediate Action Required"
-        else:  # MEDIUM
+        else:
             emoji = "⚠️⚠️"
             urgency = "URGENT - Action Required Soon"
-        
-        # Format the remediation steps properly
+
         recommended_fix_raw = incident.get('recommended_fix', 'No recommended fix provided.')
         formatted_remediation = format_remediation(recommended_fix_raw)
-        
-        # Debug logging
+
         print(f"Raw remediation for {severity} incident: {recommended_fix_raw}")
         print(f"Formatted remediation: {formatted_remediation}")
-        
+
         message = f"""
 {emoji} AIOPS {severity} SEVERITY ALERT {emoji}
 ==================================================
@@ -287,7 +274,7 @@ Incident ID: {incident.get('incident_id', 'N/A')}
             message_id=publish_response.get("MessageId"),
         )
         print(f"✅ Alert published for {severity} severity incident: {incident['incident_id']}")
-        
+
     except Exception as exc:
         incident["alert_channel"] = "SNS"
         incident["alert_status"] = "FAILED"
@@ -296,14 +283,16 @@ Incident ID: {incident.get('incident_id', 'N/A')}
         push_metric("AIFailures", 1)
         print(f"❌ Failed to publish alert for {severity} incident: {str(exc)}")
 
+
 def call_ai(log_message):
+    """Call AI service for log analysis"""
     req = urllib.request.Request(
         NGROK_URL,
         data=json.dumps({"log": log_message}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
 
-    for attempt in range(2):  # retry once
+    for attempt in range(2):
         try:
             with urllib.request.urlopen(req, timeout=15) as response_handle:
                 raw_response = response_handle.read().decode("utf-8")
@@ -313,15 +302,17 @@ def call_ai(log_message):
                 if "analysis" in ai_result:
                     return extract_from_text(ai_result["analysis"])
                 return ai_result
-            except:
+            except json.JSONDecodeError:
                 return extract_from_text(raw_response)
 
         except Exception as e:
             print(f"Attempt {attempt+1} failed:", str(e))
 
-    raise Exception("AI failed after retries")
+    raise RuntimeError("AI failed after retries")
+
 
 def create_incident():
+    """Create new incident by analyzing random log entry"""
     logs = get_logs()
     log_message = random.choice(logs)["log"]
 
@@ -347,40 +338,38 @@ def create_incident():
     incident["notes"] = []
 
     table.put_item(Item=incident)
-    # 🔥 CloudWatch Metrics
     push_metric("TotalIncidents", 1)
 
-    # Send alert for both HIGH and MEDIUM
     if severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
             push_metric("HighSeverityIncidents", 1)
         else:
             push_metric("MediumSeverityIncidents", 1)
         publish_incident_alert(incident)
-        
+
     return incident
 
+
 def list_incidents():
+    """Retrieve all incidents from DynamoDB"""
     db_response = table.scan()
     items = db_response.get("Items", [])
     items.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
     return items
 
-def count_resolved_incidents():
-    # Deprecated: Kept for reference but no longer used for CW metrics due to default Sum behavior.
-    pass
 
 def update_incident(body):
+    """Update incident status and add notes"""
     incident_id = body.get("incident_id")
     status = (body.get("status") or "OPEN").strip().upper().replace(" ", "_")
     note = (body.get("note") or "").strip()
 
     if not incident_id:
-        return response(400, {"message": "incident_id is required"})
+        return create_response(400, {"message": "incident_id is required"})
 
     allowed_statuses = {"OPEN", "AWAITING_RESOLUTION", "RESOLVED"}
     if status not in allowed_statuses:
-        return response(400, {"message": "Invalid status"})
+        return create_response(400, {"message": "Invalid status"})
 
     update_expression = "SET #status = :status, updated_at = :updated_at"
     expression_attribute_values = {
@@ -405,11 +394,9 @@ def update_incident(body):
         ReturnValues="ALL_NEW",
     )
 
-    # CloudWatch Metric for Resolved Incidents
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
 
-        # S3 Archiving
         if S3_ARCHIVE_BUCKET:
             try:
                 incident_data = updated.get("Attributes", {})
@@ -422,32 +409,35 @@ def update_incident(body):
             except Exception as e:
                 print("S3 Export Error:", str(e))
 
-    return response(
+    return create_response(
         200,
         {"message": "Incident updated", "incident": updated.get("Attributes", {})},
     )
 
+
 def generate_daily_csv_report():
+    """Generate daily CSV report of resolved incidents"""
     if not S3_ARCHIVE_BUCKET:
-        return response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
+        return create_response(500, {"message": "S3_ARCHIVE_BUCKET not configured"})
 
     items = list_incidents()
     resolved_items = [item for item in items if item.get("status") == "RESOLVED"]
 
     csv_buffer = io.StringIO()
     writer = csv.writer(csv_buffer)
-    
-    # Headers
-    writer.writerow(["Incident ID", "Timestamp", "Severity", "Error Type", "Root Cause", "Recommended Fix", "Notes Count"])
-    
+
+    writer.writerow([
+        "Incident ID", "Timestamp", "Severity", "Error Type",
+        "Root Cause", "Recommended Fix", "Notes Count"
+    ])
+
     for item in resolved_items:
-        # Format the recommended fix for CSV as well
         recommended_fix = item.get("recommended_fix", "")
         if isinstance(recommended_fix, list):
             recommended_fix = ' | '.join(str(step) for step in recommended_fix)
         elif recommended_fix:
             recommended_fix = str(recommended_fix).replace('\n', ' ').replace(',', ';')
-            
+
         writer.writerow([
             item.get("incident_id", ""),
             item.get("timestamp", ""),
@@ -457,10 +447,10 @@ def generate_daily_csv_report():
             recommended_fix,
             len(item.get("notes", []))
         ])
-    
+
     date_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     s3_key = f"reports/resolved_incidents_{date_str}.csv"
-    
+
     try:
         s3.put_object(
             Bucket=S3_ARCHIVE_BUCKET,
@@ -468,53 +458,53 @@ def generate_daily_csv_report():
             Body=csv_buffer.getvalue(),
             ContentType="text/csv"
         )
-        return response(200, {"message": f"CSV Report Generated at {s3_key}"})
+        return create_response(200, {"message": f"CSV Report Generated at {s3_key}"})
     except Exception as e:
         print("S3 Report Error:", str(e))
-        return response(500, {"message": str(e)})
+        return create_response(500, {"message": str(e)})
 
-def lambda_handler(event, context):
-    # EventBridge Scheduler Catch
+
+def lambda_handler(event, _context):
+    """Main Lambda handler for API Gateway events"""
     if event.get("source") == "eventbridge" or event.get("action") == "generate_report":
         return generate_daily_csv_report()
 
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
 
     if method == "OPTIONS":
-        return response(200, {"message": "ok"})
+        return create_response(200, {"message": "ok"})
 
     if method == "POST":
         body = parse_body(event)
-        
-        # Tunneling DELETE via POST to bypass severe CORS 'AllowMethods' blocks
+
         if body.get("action") == "delete":
             incident_id = body.get("incident_id")
             if not incident_id:
-                return response(400, {"message": "incident_id is required"})
+                return create_response(400, {"message": "incident_id is required"})
             try:
                 table.delete_item(Key={"incident_id": incident_id})
-                return response(200, {"message": "Incident deleted successfully"})
+                return create_response(200, {"message": "Incident deleted successfully"})
             except Exception as e:
-                return response(500, {"message": f"Delete failed: {str(e)}"})
-                
+                return create_response(500, {"message": f"Delete failed: {str(e)}"})
+
         return update_incident(body)
 
     if method == "DELETE":
         body = parse_body(event)
         incident_id = body.get("incident_id")
         if not incident_id:
-            return response(400, {"message": "incident_id is required"})
+            return create_response(400, {"message": "incident_id is required"})
         try:
             table.delete_item(Key={"incident_id": incident_id})
-            return response(200, {"message": "Incident deleted successfully"})
+            return create_response(200, {"message": "Incident deleted successfully"})
         except Exception as e:
-            return response(500, {"message": f"Delete failed: {str(e)}"})
+            return create_response(500, {"message": f"Delete failed: {str(e)}"})
 
     if method == "GET":
         action = (get_query_param(event, "action", "list") or "list").lower()
         if action == "generate":
             incident = create_incident()
-            return response(
+            return create_response(
                 200,
                 {
                     "message": "Incident generated",
@@ -522,6 +512,6 @@ def lambda_handler(event, context):
                     "items": list_incidents(),
                 },
             )
-        return response(200, list_incidents())
+        return create_response(200, list_incidents())
 
-    return response(405, {"message": "Method not allowed"})
+    return create_response(405, {"message": "Method not allowed"})
