@@ -35,8 +35,7 @@ jobs:
       - name: Run pylint
         run: |
           pylint lambda-package/*.py \
-            --fail-under=5 \
-            --errors-only \
+            --fail-under=7 \
             --disable=missing-docstring,line-too-long,too-many-arguments,too-many-branches,too-many-statements,too-many-locals,too-many-return-statements,invalid-name,consider-using-f-string,no-name-in-module
 
   deploy:
