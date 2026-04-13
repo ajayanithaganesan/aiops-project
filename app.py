@@ -93,7 +93,7 @@ Log:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": "phi4-mini",
+                "model": "gemma3:270m",
                 "prompt": prompt,
                 "stream": False
             },

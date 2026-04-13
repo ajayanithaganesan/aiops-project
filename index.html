@@ -559,13 +559,7 @@
 
     <script>
         const DEFAULT_REMOTE_API_URL = "https://5g6wjqdenakuiatlv2jv2nbdty0iqxub.lambda-url.us-east-1.on.aws/";
-        const LOCAL_HOSTNAMES = ["localhost", "127.0.0.1"];
-        const runtimeConfig = window.APP_CONFIG || {};
-        const BASE_URL = runtimeConfig.API_BASE_URL || (
-            LOCAL_HOSTNAMES.indexOf(window.location.hostname) >= 0
-                ? "/api/incidents"
-                : DEFAULT_REMOTE_API_URL
-        );
+        const BASE_URL = DEFAULT_REMOTE_API_URL;
 
         const POLL_INTERVAL_MS = 10000;
 
