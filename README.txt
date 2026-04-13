@@ -1,4 +1,4 @@
-Project: Agentic AI CloudOps Troubleshooting System
+Project: AIOps Incident Management Dashboard
 Author: Ajay Anitha Ganesan
 
 ---------------------------------------------------------
