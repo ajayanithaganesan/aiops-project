@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 import requests
 import json
+import re
 
 app = FastAPI()
 
@@ -64,7 +65,7 @@ async def delete_incident(request: Request):
 async def analyze_log(data: dict):
     log = data.get("log", "")
 
-    # Prompt for structured JSON output
+    # Updated prompt to request LIST format
     prompt = f"""
 You are an AWS Cloud Incident Analyzer.
 
@@ -74,13 +75,14 @@ Rules:
 - Do NOT include explanations outside JSON
 - Do NOT use markdown
 - Keep the root_cause specific
-- Provide atleast 3 distinct, detailed, and actionable resolutions in the recommended_fix field. Format them clearly (e.g., '1. ... 2. ...').
+- Provide 3 distinct, detailed, and actionable resolutions in the recommended_fix field as a LIST of strings
 - Do NOT include severity in the response
+
 Format:
 {{
   "error_type": "",
   "root_cause": "",
-  "recommended_fix": ""
+  "recommended_fix": ["1. First step", "2. Second step", "3. Third step"]
 }}
 
 Log:
@@ -92,7 +94,7 @@ Log:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": "gemma3:270m",
+                "model": "phi4-mini:latest",
                 "prompt": prompt,
                 "stream": False
             },
@@ -101,19 +103,36 @@ Log:
 
         raw_output = response.json().get("response", "")
 
+        # Clean markdown
+        raw_output = re.sub(r'```json\s*', '', raw_output)
+        raw_output = re.sub(r'```\s*', '', raw_output)
+        
         # Extract JSON safely
         start = raw_output.find("{")
         end = raw_output.rfind("}") + 1
-        json_str = raw_output[start:end]
+        
+        if start != -1 and end != 0:
+            json_str = raw_output[start:end]
+            parsed = json.loads(json_str)
+        else:
+            raise ValueError("No JSON found")
 
-        parsed = json.loads(json_str)
+        # Ensure recommended_fix is a list
+        if "recommended_fix" in parsed:
+            if isinstance(parsed["recommended_fix"], str):
+                # Convert string with \n to list
+                parsed["recommended_fix"] = [step.strip() for step in parsed["recommended_fix"].split('\n') if step.strip()]
+            elif not isinstance(parsed["recommended_fix"], list):
+                parsed["recommended_fix"] = [str(parsed["recommended_fix"])]
+        else:
+            parsed["recommended_fix"] = ["Manual investigation required"]
 
     except Exception as e:
         # Fallback if parsing fails
         parsed = {
             "error_type": "Unknown",
             "root_cause": str(e),
-            "recommended_fix": "Manual investigation required"
+            "recommended_fix": ["1. Check logs manually", "2. Investigate error", "3. Contact support"]
         }
 
     return parsed
