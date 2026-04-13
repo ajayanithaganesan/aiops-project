@@ -75,11 +75,10 @@ Rules:
 - Do NOT use markdown
 - Keep the root_cause specific
 - Provide atleast 3 distinct, detailed, and actionable resolutions in the recommended_fix field. Format them clearly (e.g., '1. ... 2. ...').
-
+- Do NOT include severity in the response
 Format:
 {{
   "error_type": "",
-  "severity": "LOW | MEDIUM | HIGH",
   "root_cause": "",
   "recommended_fix": ""
 }}
@@ -113,7 +112,6 @@ Log:
         # Fallback if parsing fails
         parsed = {
             "error_type": "Unknown",
-            "severity": "UNKNOWN",
             "root_cause": str(e),
             "recommended_fix": "Manual investigation required"
         }
