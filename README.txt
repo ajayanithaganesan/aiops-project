@@ -1,4 +1,4 @@
-Project: AIOps Incident Management Dashboard
+Project: AIOps Recommendation and Incident Management Dashboard
 Author: Ajay Anitha Ganesan
 
 ---------------------------------------------------------
