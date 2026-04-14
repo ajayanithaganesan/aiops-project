@@ -29,6 +29,8 @@
             --awaiting-soft: #fef3c7;
             --resolved: #166534;
             --resolved-soft: #dcfce7;
+            --failed: #dc2626;
+            --failed-soft: #fee2e2;
         }
 
         * {
@@ -43,12 +45,16 @@
                 radial-gradient(circle at top left, #ccfbf1 0%, transparent 22%),
                 var(--bg);
             color: var(--text);
+            min-height: 100vh;
         }
 
         .dashboard {
             max-width: 1440px;
             margin: 0 auto;
             padding: 28px 24px 36px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
         }
 
         .topbar {
@@ -57,6 +63,7 @@
             align-items: center;
             gap: 16px;
             margin-bottom: 20px;
+            flex-shrink: 0;
         }
 
         .title-wrap h1 {
@@ -100,11 +107,22 @@
             border-color: transparent;
         }
 
+        .btn-retry {
+            background: #d97706;
+            color: white;
+            border-color: transparent;
+        }
+
+        .btn-retry:hover {
+            background: #b45309;
+        }
+
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(7, minmax(0, 1fr));
             gap: 14px;
             margin-bottom: 20px;
+            flex-shrink: 0;
         }
 
         .summary-card,
@@ -143,17 +161,23 @@
             display: grid;
             grid-template-columns: 1.8fr 1fr;
             gap: 18px;
-            align-items: start;
+            flex: 1;
+            min-height: 0;
+            align-items: stretch;
         }
 
         .panel {
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
         .panel-header {
             padding: 18px 20px;
             border-bottom: 1px solid var(--border);
             background: linear-gradient(180deg, #ffffff, #fbfdff);
+            flex-shrink: 0;
         }
 
         .panel-title {
@@ -171,6 +195,9 @@
         .table-wrap,
         .details-body {
             padding: 12px 16px 18px;
+            flex: 1;
+            overflow-y: auto;
+            min-height: 400px;
         }
 
         table {
@@ -265,9 +292,22 @@
             background: var(--resolved-soft);
         }
 
+        .FAILED_QUEUE {
+            color: var(--failed);
+            background: var(--failed-soft);
+        }
+
         .right-column {
-            display: grid;
+            display: flex;
+            flex-direction: column;
             gap: 18px;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .right-column .panel {
+            flex: 1;
+            min-height: 0;
         }
 
         .detail-grid {
@@ -342,6 +382,7 @@
             padding: 26px 20px;
             color: var(--muted);
             font-size: 14px;
+            text-align: center;
         }
 
         .error-banner {
@@ -374,6 +415,7 @@
             pointer-events: none;
             transform: translateY(10px);
             transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 1000;
         }
 
         .toast.show {
@@ -381,9 +423,37 @@
             transform: translateY(0);
         }
 
+        .pagination-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
         @media (max-width: 1320px) {
             .summary-grid {
-                grid-template-columns: repeat(3, minmax(0, 1fr));
+                grid-template-columns: repeat(4, minmax(0, 1fr));
             }
         }
 
@@ -412,25 +482,6 @@
             .summary-grid {
                 grid-template-columns: 1fr;
             }
-        }
-
-        .pagination-btn {
-            padding: 4px 10px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: #fff;
-            cursor: pointer;
-            font-size: 13px;
-        }
-
-        .pagination-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .page-info {
-            font-size: 13px;
-            color: var(--muted);
         }
     </style>
 </head>
@@ -480,6 +531,11 @@
                 <div class="summary-value" id="awaitingCount">0</div>
                 <div class="summary-sub">Tracked but not closed</div>
             </div>
+            <div class="summary-card" id="queueCard" style="background: #fef3c7;">
+                <div class="summary-title">⏳ Failed Queue</div>
+                <div class="summary-value" id="queueCount">0</div>
+                <div class="summary-sub">AI failed - needs retry</div>
+            </div>
         </div>
 
         <div class="content-grid">
@@ -491,12 +547,13 @@
                         </p>
                     </div>
                     <select id="statusFilter" class="btn"
-                        style="background:#fff; padding: 6px 12px; height: 36px; width: 140px; line-height: 1;"
+                        style="background:#fff; padding: 6px 12px; height: 36px; width: 160px;"
                         onchange="setFilter(this.value)">
                         <option value="ALL">All Incidents</option>
                         <option value="OPEN">Open</option>
                         <option value="AWAITING_RESOLUTION">Awaiting Resolution</option>
                         <option value="RESOLVED">Resolved</option>
+                        <option value="FAILED_QUEUE">⚠️ Failed Queue</option>
                     </select>
                 </div>
                 <div class="table-wrap">
@@ -504,22 +561,15 @@
                         <thead>
                             <tr>
                                 <th>Error</th>
-                                <th style="cursor:pointer;" onclick="toggleSort('severity')" title="Sort by Severity">
-                                    Severity ↕</th>
-                                <th style="cursor:pointer;" onclick="toggleSort('status')" title="Sort by Status">Status
-                                    ↕</th>
-                                <th style="cursor:pointer;" onclick="toggleSort('timestamp')" title="Sort by Timestamp">
-                                    Timestamp ↕</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('severity')">Severity ↕</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('status')">Status ↕</th>
+                                <th style="cursor:pointer;" onclick="toggleSort('timestamp')">Timestamp ↕</th>
                             </tr>
                         </thead>
                         <tbody id="incidentTable"></tbody>
                     </table>
-                    <div id="tableEmpty" class="empty-state" style="display: none;">
-                        No incidents found yet. Generate one to start populating the dashboard.
-                    </div>
-                    <div id="tablePagination"
-                        style="display:none; margin-top: 14px; justify-content: space-between; align-items: center;">
-                    </div>
+                    <div id="tableEmpty" class="empty-state" style="display: none;">No incidents found.</div>
+                    <div id="tablePagination" class="pagination-container" style="display:none;"></div>
                 </div>
             </div>
 
@@ -531,10 +581,7 @@
                     </div>
                     <div class="details-body">
                         <div id="detailsContent">
-                            <div class="empty-state">
-                                Choose an incident from the queue to inspect root cause, recommendation, notes, and
-                                current status.
-                            </div>
+                            <div class="empty-state">Choose an incident from the queue to inspect details.</div>
                         </div>
                     </div>
                 </div>
@@ -542,13 +589,13 @@
                 <div class="panel">
                     <div class="panel-header">
                         <h2 class="panel-title">Recent Notes</h2>
-                        <p class="panel-subtitle">Latest investigation history across incidents.</p>
+                        <p class="panel-subtitle">Latest investigation history across incidents (4 per page).</p>
                     </div>
-                    <div id="recentNotes" class="details-body">
-                        <div class="empty-state">No notes have been saved yet.</div>
-                    </div>
-                    <div id="notesPagination"
-                        style="display:none; padding: 0 16px 14px; justify-content: space-between; align-items: center;">
+                    <div class="details-body">
+                        <div id="recentNotes">
+                            <div class="empty-state">No notes have been saved yet.</div>
+                        </div>
+                        <div id="notesPagination" class="pagination-container" style="display:none;"></div>
                     </div>
                 </div>
             </div>
@@ -558,31 +605,70 @@
     <div id="toast" class="toast"></div>
 
     <script>
-        const DEFAULT_REMOTE_API_URL = "https://5g6wjqdenakuiatlv2jv2nbdty0iqxub.lambda-url.us-east-1.on.aws/";
-        const BASE_URL = DEFAULT_REMOTE_API_URL;
-
-        const POLL_INTERVAL_MS = 10000;
+        const BASE_URL = "https://5g6wjqdenakuiatlv2jv2nbdty0iqxub.lambda-url.us-east-1.on.aws/";
+        const POLL_INTERVAL_MS = 5000;
+        const NOTES_PER_PAGE = 4;
 
         let incidents = [];
+        let failedIncidents = [];
         let selectedIncidentId = null;
-        let lastIncidentsSignature = "";
-        let isLoadingData = false;
-
+        let selectedFailedReceiptHandle = null;
         let currentFilter = "ALL";
         let tablePage = 1;
         const TABLE_PAGE_SIZE = 20;
         let currentSort = { col: "timestamp", asc: false };
-
         let notesPage = 1;
-        const NOTES_PAGE_SIZE = 14;
+
+        // Edit detection to prevent race conditions
+        let isEditing = false;
+
+        function showToast(msg) {
+            const toast = document.getElementById("toast");
+            toast.textContent = msg;
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 2400);
+        }
+
+        function showError(msg) {
+            const banner = document.getElementById("errorBanner");
+            banner.textContent = msg;
+            banner.style.display = "block";
+            showToast(msg);
+            setTimeout(() => banner.style.display = "none", 5000);
+        }
+
+        function escapeHtml(str) {
+            return String(str || "").replace(/[&<>]/g, function (m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        function formatDate(isoString) {
+            if (!isoString) return "-";
+            try {
+                return new Date(isoString).toLocaleString();
+            } catch (e) {
+                return isoString;
+            }
+        }
+
+        function prettyStatus(status) {
+            if (status === "FAILED_QUEUE") return "Failed Queue";
+            return String(status || "OPEN").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+        }
 
         function setFilter(val) {
             currentFilter = val;
             tablePage = 1;
-            renderTable();
+            if (currentFilter === "FAILED_QUEUE") {
+                loadFailedQueue();
+            } else {
+                renderTable();
+            }
         }
-        function changeTablePage(d) { tablePage += d; renderTable(); }
-        function changeNotesPage(d) { notesPage += d; renderRecentNotes(); }
 
         function toggleSort(col) {
             if (currentSort.col === col) {
@@ -594,227 +680,210 @@
             renderTable();
         }
 
-        function showToast(message) {
-            const toast = document.getElementById("toast");
-            toast.textContent = message;
-            toast.classList.add("show");
-            window.clearTimeout(showToast._timer);
-            showToast._timer = window.setTimeout(() => {
-                toast.classList.remove("show");
-            }, 2400);
-        }
-
-        function showError(message) {
-            const banner = document.getElementById("errorBanner");
-            banner.textContent = message;
-            banner.style.display = "block";
-            showToast(message);
-        }
-
-        function clearError() {
-            const banner = document.getElementById("errorBanner");
-            banner.textContent = "";
-            banner.style.display = "none";
-        }
-
-        function escapeHtml(value) {
-            return String(value || "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        function formatDate(isoString) {
-            if (!isoString || isoString === "-") return "-";
+        async function getQueueCount() {
             try {
-                const date = new Date(isoString);
-                if (isNaN(date.getTime())) return isoString;
-                return date.toLocaleString([], {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                });
+                const res = await fetch(`${BASE_URL}?queue_count=true`);
+                const data = await res.json();
+                const count = data.queue_count || 0;
+                document.getElementById("queueCount").innerText = count;
+                const card = document.getElementById("queueCard");
+                if (count > 0) {
+                    card.style.background = "#fee2e2";
+                    card.style.borderColor = "#dc2626";
+                } else {
+                    card.style.background = "#fef3c7";
+                    card.style.borderColor = "#dbe3ee";
+                }
+            } catch (e) { console.log("Queue count error:", e); }
+        }
+
+        async function loadFailedQueue() {
+            try {
+                const res = await fetch(`${BASE_URL}?failed_queue=true`);
+                failedIncidents = await res.json();
+                renderFailedTable();
             } catch (e) {
-                return isoString;
+                console.error("Failed to load queue:", e);
+                failedIncidents = [];
+                renderFailedTable();
             }
         }
 
-        function prettyStatus(status) {
-            return String(status || "OPEN")
-                .toLowerCase()
-                .split("_")
-                .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-                .join(" ");
-        }
-
-        function getSelectedIncident() {
-            return incidents.find(item => item.incident_id === selectedIncidentId) || null;
-        }
-
-        function buildIncidentsSignature(items) {
-            return JSON.stringify(items || []);
-        }
-
-        function captureDetailDraft() {
-            const statusInput = document.getElementById("statusInput");
-            const noteInput = document.getElementById("noteInput");
-
-            return {
-                incidentId: selectedIncidentId,
-                status: statusInput ? statusInput.value : null,
-                note: noteInput ? noteInput.value : "",
-                activeElementId: document.activeElement ? document.activeElement.id : ""
-            };
-        }
-
-        function restoreDetailDraft(draft) {
-            if (!draft || draft.incidentId !== selectedIncidentId) {
-                return;
-            }
-
-            const statusInput = document.getElementById("statusInput");
-            const noteInput = document.getElementById("noteInput");
-
-            if (statusInput && draft.status) {
-                statusInput.value = draft.status;
-            }
-
-            if (noteInput) {
-                noteInput.value = draft.note || "";
-            }
-
-            if (draft.activeElementId === "noteInput" && noteInput) {
-                noteInput.focus();
-                noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length);
-            } else if (draft.activeElementId === "statusInput" && statusInput) {
-                statusInput.focus();
-            }
-        }
-
-        function syncDashboard(nextIncidents, options) {
-            const settings = options || {};
-            const draft = captureDetailDraft();
-            const nextSignature = buildIncidentsSignature(nextIncidents);
-            const selectionMissing = selectedIncidentId && !nextIncidents.some(item => item.incident_id === selectedIncidentId);
-            const shouldRender = settings.force || selectionMissing || nextSignature !== lastIncidentsSignature;
-
-            incidents = nextIncidents;
-
-            if (!selectedIncidentId && incidents.length) {
-                selectedIncidentId = incidents[0].incident_id;
-            }
-
-            if (selectionMissing) {
-                selectedIncidentId = incidents.length ? incidents[0].incident_id : null;
-            }
-
-            if (!shouldRender) {
-                return;
-            }
-
-            lastIncidentsSignature = nextSignature;
-            updateSummaryCards();
-            renderTable();
-            renderDetails();
-            restoreDetailDraft(draft);
-            renderRecentNotes();
-        }
-
-        function updateSummaryCards() {
-            const counts = {
-                HIGH: 0,
-                MEDIUM: 0,
-                LOW: 0,
-                WARNING: 0,
-                RESOLVED: 0,
-                AWAITING_RESOLUTION: 0
-            };
-
-            incidents.forEach(item => {
-                counts[item.severity] = (counts[item.severity] || 0) + 1;
-                counts[item.status] = (counts[item.status] || 0) + 1;
-            });
-
-            document.getElementById("highCount").textContent = counts.HIGH || 0;
-            document.getElementById("mediumCount").textContent = counts.MEDIUM || 0;
-            document.getElementById("lowCount").textContent = counts.LOW || 0;
-            document.getElementById("warningCount").textContent = counts.WARNING || 0;
-            document.getElementById("resolvedCount").textContent = counts.RESOLVED || 0;
-            document.getElementById("awaitingCount").textContent = counts.AWAITING_RESOLUTION || 0;
-        }
-
-        function renderTable() {
-            const table = document.getElementById("incidentTable");
+        function renderFailedTable() {
+            const tbody = document.getElementById("incidentTable");
             const empty = document.getElementById("tableEmpty");
             const pag = document.getElementById("tablePagination");
 
-            let filtered = [...incidents];
-            if (currentFilter !== "ALL") {
-                filtered = filtered.filter(i => i.status === currentFilter);
-            }
-
-            filtered.sort((a, b) => {
-                let valA = a[currentSort.col] || "";
-                let valB = b[currentSort.col] || "";
-
-                if (currentSort.col === 'severity') {
-                    const w = { "HIGH": 3, "MEDIUM": 2, "LOW": 1, "WARNING": 0 };
-                    valA = w[valA.toString().toUpperCase()] || -1;
-                    valB = w[valB.toString().toUpperCase()] || -1;
-                } else if (currentSort.col === 'timestamp') {
-                    valA = new Date(valA).getTime() || 0;
-                    valB = new Date(valB).getTime() || 0;
-                }
-
-                if (valA < valB) return currentSort.asc ? -1 : 1;
-                if (valA > valB) return currentSort.asc ? 1 : -1;
-                return 0;
-            });
-
-            if (!filtered.length) {
-                table.innerHTML = "";
-                pag.style.display = "none";
+            if (!failedIncidents.length) {
+                tbody.innerHTML = "";
                 empty.style.display = "block";
+                empty.innerHTML = "No incidents waiting in failed queue.";
+                pag.style.display = "none";
                 return;
             }
 
             empty.style.display = "none";
-            pag.style.display = "flex";
+            pag.style.display = "none";
 
-            const totalPages = Math.ceil(filtered.length / TABLE_PAGE_SIZE);
-            if (tablePage > totalPages) tablePage = totalPages;
-            if (tablePage < 1) tablePage = 1;
-
-            const startIdx = (tablePage - 1) * TABLE_PAGE_SIZE;
-            const pageItems = filtered.slice(startIdx, startIdx + TABLE_PAGE_SIZE);
-
-            pag.innerHTML = `
-                <div class="page-info">Page ${tablePage} of ${totalPages}</div>
-                <div>
-                    <button class="pagination-btn" ${tablePage === 1 ? 'disabled' : ''} onclick="changeTablePage(-1)">Prev</button>
-                    <button class="pagination-btn" ${tablePage === totalPages ? 'disabled' : ''} onclick="changeTablePage(1)">Next</button>
-                </div>
-            `;
-
-            table.innerHTML = pageItems.map(item => `
-                <tr class="incident-row ${item.incident_id === selectedIncidentId ? "active" : ""}" data-id="${item.incident_id}">
-                    <td>
-                        <div class="incident-meta">
-                            <strong>${escapeHtml(item.error_type || "Unknown")}</strong>
-                            <span class="incident-log">${escapeHtml(item.log || "-")}</span>
-                        </div>
-                    </td>
-                    <td><span class="badge ${escapeHtml(item.severity || "LOW")}">${escapeHtml(item.severity || "LOW")}</span></td>
-                    <td><span class="badge ${escapeHtml(item.status || "OPEN")}">${escapeHtml(prettyStatus(item.status || "OPEN"))}</span></td>
+            tbody.innerHTML = failedIncidents.map(item => `
+                <tr class="incident-row ${item.receipt_handle === selectedFailedReceiptHandle ? "active" : ""}" data-handle="${item.receipt_handle}">
+                    <td><div class="incident-meta"><strong>AI Processing Failed</strong><span class="incident-log">${escapeHtml(item.log.substring(0, 80))}...</span></div></td>
+                    <td><span class="badge FAILED_QUEUE">⚠️ Pending</span></td>
+                    <td><span class="badge FAILED_QUEUE">Failed Queue</span></td>
                     <td>${escapeHtml(formatDate(item.timestamp))}</td>
                 </tr>
             `).join("");
 
-            table.querySelectorAll(".incident-row").forEach(row => {
+            document.querySelectorAll(".incident-row").forEach(row => {
+                row.addEventListener("click", () => {
+                    selectedFailedReceiptHandle = row.dataset.handle;
+                    renderFailedTable();
+                    renderFailedDetails();
+                });
+            });
+        }
+
+        function renderFailedDetails() {
+            const wrap = document.getElementById("detailsContent");
+            const incident = failedIncidents.find(i => i.receipt_handle === selectedFailedReceiptHandle);
+            if (!incident) {
+                wrap.innerHTML = `<div class="empty-state">Select a failed incident to retry.</div>`;
+                return;
+            }
+            wrap.innerHTML = `
+                <div class="detail-grid">
+                    <div class="detail-block"><span class="detail-label">Status</span><span class="badge FAILED_QUEUE">⚠️ AI Failed - In Queue</span></div>
+                    <div class="detail-block"><span class="detail-label">Original Error</span><div class="detail-value">${escapeHtml(incident.error)}</div></div>
+                    <div class="detail-block"><span class="detail-label">Log Message</span><div class="detail-value">${escapeHtml(incident.log)}</div></div>
+                    <div class="detail-block"><span class="detail-label">Failed Time</span><div class="detail-value">${escapeHtml(formatDate(incident.timestamp))}</div></div>
+                </div>
+                <div class="save-row"><button class="btn btn-retry" onclick="retryFailedIncident()">🔄 Retry Now</button></div>
+            `;
+        }
+
+        async function retryFailedIncident() {
+            const incident = failedIncidents.find(i => i.receipt_handle === selectedFailedReceiptHandle);
+            if (!incident) return;
+
+            try {
+                showToast("Retrying incident...");
+                const matchingIncident = incidents.find(inc => inc.log === incident.log);
+                const response = await fetch(BASE_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        action: "retry_failed",
+                        receipt_handle: incident.receipt_handle,
+                        log_message: incident.log,
+                        incident_id: matchingIncident ? matchingIncident.incident_id : null
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showToast("✅ Incident retried and updated successfully!");
+                    // Simply refresh everything - SQS is the source of truth
+                    await loadData();
+                    await loadFailedQueue();
+                    await getQueueCount();
+                    if (currentFilter === "FAILED_QUEUE") {
+                        renderFailedTable();
+                    }
+                    selectedFailedReceiptHandle = null;
+                    notesPage = 1;
+                    renderRecentNotes();
+                } else {
+                    showToast(`❌ Retry failed: ${result.message}`);
+                }
+            } catch (e) { showToast(`Error: ${e.message}`); }
+        }
+
+        async function loadData() {
+            // Don't load data while editing
+            if (isEditing) return;
+
+            try {
+                const res = await fetch(BASE_URL);
+                const data = await res.json();
+                incidents = Array.isArray(data) ? data : (data.items || []);
+                updateSummaryCards();
+                if (currentFilter !== "FAILED_QUEUE") {
+                    renderTable();
+                    if (selectedIncidentId) renderDetails();
+                }
+                renderRecentNotes();
+            } catch (e) { console.error("Load error:", e); }
+        }
+
+        function updateSummaryCards() {
+            let high = 0, medium = 0, low = 0, warning = 0, resolved = 0, awaiting = 0;
+            incidents.forEach(i => {
+                if (i.severity === "HIGH") high++;
+                if (i.severity === "MEDIUM") medium++;
+                if (i.severity === "LOW") low++;
+                if (i.severity === "WARNING") warning++;
+                if (i.status === "RESOLVED") resolved++;
+                if (i.status === "AWAITING_RESOLUTION") awaiting++;
+            });
+            document.getElementById("highCount").innerText = high;
+            document.getElementById("mediumCount").innerText = medium;
+            document.getElementById("lowCount").innerText = low;
+            document.getElementById("warningCount").innerText = warning;
+            document.getElementById("resolvedCount").innerText = resolved;
+            document.getElementById("awaitingCount").innerText = awaiting;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById("incidentTable");
+            const empty = document.getElementById("tableEmpty");
+            const pag = document.getElementById("tablePagination");
+
+            let filtered = [...incidents];
+            if (currentFilter !== "ALL") filtered = filtered.filter(i => i.status === currentFilter);
+
+            filtered.sort((a, b) => {
+                let valA = a[currentSort.col] || "";
+                let valB = b[currentSort.col] || "";
+                if (currentSort.col === 'severity') {
+                    const order = { "HIGH": 3, "MEDIUM": 2, "LOW": 1, "WARNING": 0 };
+                    valA = order[valA] || 0;
+                    valB = order[valB] || 0;
+                } else if (currentSort.col === 'timestamp') {
+                    valA = new Date(valA).getTime() || 0;
+                    valB = new Date(valB).getTime() || 0;
+                }
+                return currentSort.asc ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+            });
+
+            if (!filtered.length) {
+                tbody.innerHTML = "";
+                empty.style.display = "block";
+                pag.style.display = "none";
+                return;
+            }
+
+            empty.style.display = "none";
+            const totalPages = Math.ceil(filtered.length / TABLE_PAGE_SIZE);
+            if (tablePage > totalPages) tablePage = totalPages;
+            const start = (tablePage - 1) * TABLE_PAGE_SIZE;
+            const pageItems = filtered.slice(start, start + TABLE_PAGE_SIZE);
+
+            pag.style.display = "flex";
+            pag.innerHTML = `
+                <div class="page-info">Page ${tablePage} of ${totalPages}</div>
+                <div><button class="pagination-btn" ${tablePage === 1 ? 'disabled' : ''} onclick="changeTablePage(-1)">Prev</button>
+                <button class="pagination-btn" ${tablePage === totalPages ? 'disabled' : ''} onclick="changeTablePage(1)">Next</button></div>
+            `;
+
+            tbody.innerHTML = pageItems.map(item => `
+                <tr class="incident-row ${item.incident_id === selectedIncidentId ? "active" : ""}" data-id="${item.incident_id}">
+                    <td><strong>${escapeHtml(item.error_type || "Unknown")}</strong><br><small>${escapeHtml((item.log || "").substring(0, 60))}...</small></td>
+                    <td><span class="badge ${item.severity || "LOW"}">${item.severity || "LOW"}</span></td>
+                    <td><span class="badge ${item.status || "OPEN"}">${prettyStatus(item.status || "OPEN")}</span></td>
+                    <td>${formatDate(item.timestamp)}</span></td>
+                </tr>
+            `).join("");
+
+            document.querySelectorAll(".incident-row").forEach(row => {
                 row.addEventListener("click", () => {
                     selectedIncidentId = row.dataset.id;
                     renderTable();
@@ -825,91 +894,87 @@
 
         function renderDetails() {
             const wrap = document.getElementById("detailsContent");
-            const incident = getSelectedIncident();
-
+            const incident = incidents.find(i => i.incident_id === selectedIncidentId);
             if (!incident) {
-                wrap.innerHTML = `
-                    <div class="empty-state">
-                        Choose an incident from the queue to inspect root cause, recommendation, notes, and current status.
-                    </div>
-                `;
+                wrap.innerHTML = `<div class="empty-state">Select an incident to view details.</div>`;
                 return;
             }
-
             const notes = incident.notes || [];
-            const notesHtml = notes.length
-                ? `<ul class="notes-list">${notes.map(note => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`
-                : `<div class="empty-state" style="padding: 12px 0 0;">No notes saved for this incident yet.</div>`;
-
             wrap.innerHTML = `
                 <div class="detail-grid">
-                    <div class="detail-block">
-                        <span class="detail-label">Severity</span>
-                        <span class="badge ${escapeHtml(incident.severity || "LOW")}">${escapeHtml(incident.severity || "LOW")}</span>
-                    </div>
-                    <div class="detail-block">
-                        <span class="detail-label">Current Status</span>
-                        <span class="badge ${escapeHtml(incident.status || "OPEN")}">${escapeHtml(prettyStatus(incident.status || "OPEN"))}</span>
-                    </div>
-                    <div class="detail-block">
-                        <span class="detail-label">Error Type</span>
-                        <div class="detail-value">${escapeHtml(incident.error_type || "Unknown")}</div>
-                    </div>
-                    <div class="detail-block">
-                        <span class="detail-label">Root Cause</span>
-                        <div class="detail-value">${escapeHtml(incident.root_cause || "Not identified")}</div>
-                    </div>
-                    <div class="detail-block">
-                        <span class="detail-label">Recommended Fix</span>
-                        <div class="detail-value">${escapeHtml(incident.recommended_fix || "Manual investigation required")}</div>
-                    </div>
-                    <div class="detail-block">
-                        <span class="detail-label">Log Message</span>
-                        <div class="detail-value">${escapeHtml(incident.log || "-")}</div>
-                    </div>
+                    <div class="detail-block"><span class="detail-label">Severity</span><span class="badge ${incident.severity}">${incident.severity}</span></div>
+                    <div class="detail-block"><span class="detail-label">Status</span><span class="badge ${incident.status}">${prettyStatus(incident.status)}</span></div>
+                    <div class="detail-block"><span class="detail-label">Error Type</span><div class="detail-value">${escapeHtml(incident.error_type)}</div></div>
+                    <div class="detail-block"><span class="detail-label">Root Cause</span><div class="detail-value">${escapeHtml(incident.root_cause)}</div></div>
+                    <div class="detail-block"><span class="detail-label">Recommended Fix</span><div class="detail-value">${escapeHtml(incident.recommended_fix)}</div></div>
+                    <div class="detail-block"><span class="detail-label">Log Message</span><div class="detail-value">${escapeHtml(incident.log)}</div></div>
                 </div>
-
-                <div class="field-group">
-                    <label class="detail-label" for="statusInput">Update Status</label>
+                <div class="field-group"><label class="detail-label">Update Status</label>
                     <select id="statusInput">
                         <option value="OPEN" ${incident.status === "OPEN" ? "selected" : ""}>Open</option>
                         <option value="AWAITING_RESOLUTION" ${incident.status === "AWAITING_RESOLUTION" ? "selected" : ""}>Awaiting Resolution</option>
                         <option value="RESOLVED" ${incident.status === "RESOLVED" ? "selected" : ""}>Resolved</option>
                     </select>
                 </div>
-
-                <div class="field-group">
-                    <label class="detail-label" for="noteInput">Add Note</label>
-                    <textarea id="noteInput" placeholder="Add investigation notes, remediation progress, or handoff details..."></textarea>
-                </div>
-
-                <div class="field-group">
-                    <span class="detail-label">Saved Notes</span>
-                    ${notesHtml}
-                </div>
-
-                <div class="save-row" style="display: flex; gap: 10px;">
-                    <button class="btn" style="color: var(--high); border-color: var(--high-soft);" onclick="deleteIncident()">Delete</button>
-                    <button class="btn btn-primary" onclick="saveIncident()">Submit</button>
-                </div>
+                <div class="field-group"><label class="detail-label">Add Note</label><textarea id="noteInput" placeholder="Add investigation notes..."></textarea></div>
+                <div class="field-group"><span class="detail-label">Saved Notes</span>${notes.length ? `<ul class="notes-list">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join("")}</ul>` : '<div class="empty-state">No notes yet.</div>'}</div>
+                <div class="save-row" style="gap:10px"><button class="btn" style="color:#dc2626" onclick="deleteIncident()">Delete</button><button class="btn btn-primary" onclick="saveIncident()">Submit</button></div>
             `;
+
+            // Add event listeners to detect editing
+            const statusSelect = document.getElementById("statusInput");
+            const noteTextarea = document.getElementById("noteInput");
+
+            if (statusSelect) {
+                statusSelect.addEventListener('focus', () => { isEditing = true; });
+                statusSelect.addEventListener('blur', () => { isEditing = false; });
+            }
+
+            if (noteTextarea) {
+                noteTextarea.addEventListener('focus', () => { isEditing = true; });
+                noteTextarea.addEventListener('blur', () => { isEditing = false; });
+            }
+        }
+
+        async function saveIncident() {
+            const incident = incidents.find(i => i.incident_id === selectedIncidentId);
+            if (!incident) return;
+            const status = document.getElementById("statusInput").value;
+            const note = document.getElementById("noteInput").value.trim();
+            try {
+                const res = await fetch(BASE_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ incident_id: incident.incident_id, status, note })
+                });
+                if (!res.ok) throw new Error();
+                showToast("Incident updated");
+                await loadData();
+                notesPage = 1;
+                renderRecentNotes();
+                isEditing = false;
+            } catch (e) { showError("Update failed"); }
         }
 
         function renderRecentNotes() {
             const wrap = document.getElementById("recentNotes");
             const pag = document.getElementById("notesPagination");
-            const allNotes = [];
 
-            incidents.forEach(function (item) {
-                const itemNotes = item.notes || [];
-                itemNotes.forEach(function (note) {
+            let allNotes = [];
+            incidents.forEach(incident => {
+                const notes = incident.notes || [];
+                notes.forEach(note => {
                     allNotes.push({
-                        incident: item.error_type || "Unknown",
-                        status: item.status || "OPEN",
-                        note: note
+                        incident_id: incident.incident_id,
+                        error_type: incident.error_type,
+                        note: note,
+                        timestamp: incident.timestamp,
+                        status: incident.status
                     });
                 });
             });
+
+            allNotes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
             if (!allNotes.length) {
                 wrap.innerHTML = `<div class="empty-state">No notes have been saved yet.</div>`;
@@ -917,175 +982,70 @@
                 return;
             }
 
-            pag.style.display = "flex";
-            const totalPages = Math.ceil(allNotes.length / NOTES_PAGE_SIZE);
+            const totalPages = Math.ceil(allNotes.length / NOTES_PER_PAGE);
             if (notesPage > totalPages) notesPage = totalPages;
             if (notesPage < 1) notesPage = 1;
 
-            const startIdx = (notesPage - 1) * NOTES_PAGE_SIZE;
-            const pageItems = allNotes.slice(startIdx, startIdx + NOTES_PAGE_SIZE);
+            const start = (notesPage - 1) * NOTES_PER_PAGE;
+            const pageNotes = allNotes.slice(start, start + NOTES_PER_PAGE);
 
+            pag.style.display = "flex";
             pag.innerHTML = `
                 <div class="page-info">Page ${notesPage} of ${totalPages}</div>
-                <div>
-                    <button class="pagination-btn" ${notesPage === 1 ? 'disabled' : ''} onclick="changeNotesPage(-1)">Prev</button>
-                    <button class="pagination-btn" ${notesPage === totalPages ? 'disabled' : ''} onclick="changeNotesPage(1)">Next</button>
-                </div>
+                <div><button class="pagination-btn" ${notesPage === 1 ? 'disabled' : ''} onclick="changeNotesPage(-1)">Prev</button>
+                <button class="pagination-btn" ${notesPage === totalPages ? 'disabled' : ''} onclick="changeNotesPage(1)">Next</button></div>
             `;
 
-            wrap.innerHTML = `
-                <ul class="notes-list">
-                    ${pageItems.map(entry => `
-                        <li>
-                            <strong>${escapeHtml(entry.incident)}</strong><br>
-                            ${escapeHtml(entry.note)}<br>
-                            <span style="color: var(--muted); font-size: 12px;">${escapeHtml(prettyStatus(entry.status))}</span>
-                        </li>
-                    `).join("")}
-                </ul>
-            `;
+            wrap.innerHTML = `<ul class="notes-list">${pageNotes.map(n => `
+                <li>
+                    <strong>${escapeHtml(n.error_type || "Unknown")}</strong><br>
+                    ${escapeHtml(n.note)}<br>
+                    <span style="color: var(--muted); font-size: 11px;">${formatDate(n.timestamp)} • ${prettyStatus(n.status)}</span>
+                </li>
+            `).join("")}</ul>`;
         }
 
-        async function loadData(options) {
-            const settings = options || {};
-
-            if (isLoadingData) {
-                return;
-            }
-
-            try {
-                isLoadingData = true;
-                if (!settings.silent) {
-                    clearError();
-                }
-
-                const res = await fetch(BASE_URL);
-                const payload = await res.json();
-
-                if (!res.ok) {
-                    throw new Error(payload.message || "Dashboard fetch failed");
-                }
-
-                const nextIncidents = Array.isArray(payload) ? payload : (payload.items || []);
-                syncDashboard(nextIncidents, settings);
-            } catch (error) {
-                if (!settings.silent) {
-                    incidents = [];
-                    lastIncidentsSignature = "";
-                    updateSummaryCards();
-                    renderTable();
-                    renderDetails();
-                    renderRecentNotes();
-                    showError(`Unable to load incidents: ${error.message}`);
-                }
-            } finally {
-                isLoadingData = false;
-            }
-        }
+        function changeTablePage(d) { tablePage += d; renderTable(); }
+        function changeNotesPage(d) { notesPage += d; renderRecentNotes(); }
 
         async function generateIncident() {
             try {
-                clearError();
                 const res = await fetch(`${BASE_URL}?action=generate`);
-                const payload = await res.json();
-
-                if (!res.ok) {
-                    throw new Error(payload.message || "Incident generation failed");
-                }
-
-                const nextIncidents = payload.items || [];
-                syncDashboard(nextIncidents, { force: true });
-
-                if (payload.incident && payload.incident.incident_id) {
-                    selectedIncidentId = payload.incident.incident_id;
-                    renderTable();
-                    renderDetails();
-                    renderRecentNotes();
-                }
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message);
+                await loadData();
+                await getQueueCount();
                 showToast("New incident generated");
-            } catch (error) {
-                showError(`Unable to generate incident: ${error.message}`);
-            }
-        }
-
-        async function saveIncident() {
-            const incident = getSelectedIncident();
-            if (!incident) {
-                showToast("Select an incident first");
-                return;
-            }
-
-            try {
-                clearError();
-                const statusInput = document.getElementById("statusInput");
-                const noteInput = document.getElementById("noteInput");
-                const status = (statusInput && statusInput.value) || incident.status || "OPEN";
-                const note = ((noteInput && noteInput.value) || "").trim();
-
-                const res = await fetch(BASE_URL, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        incident_id: incident.incident_id,
-                        status,
-                        note
-                    })
-                });
-
-                const payload = await res.json();
-                if (!res.ok) {
-                    throw new Error(payload.message || "Unable to save incident");
-                }
-
-                showToast("Incident submitted successfully");
-                await loadData({ force: true });
-            } catch (error) {
-                showError(`Unable to save incident: ${error.message}`);
-            }
+            } catch (e) { showError("Failed to generate incident"); }
         }
 
         async function deleteIncident() {
-            const incident = getSelectedIncident();
-            if (!incident) {
-                showToast("Select an incident first");
-                return;
-            }
-
-            if (!confirm("Are you sure you want to delete this incident?")) {
-                return;
-            }
-
+            const incident = incidents.find(i => i.incident_id === selectedIncidentId);
+            if (!incident || !confirm("Delete this incident?")) return;
             try {
-                clearError();
-                const res = await fetch(BASE_URL, {
+                await fetch(BASE_URL, {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        action: "delete",
-                        incident_id: incident.incident_id
-                    })
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "delete", incident_id: incident.incident_id })
                 });
-
-                const payload = await res.json();
-                if (!res.ok) {
-                    throw new Error(payload.message || "Unable to delete incident");
-                }
-
-                showToast("Incident successfully deleted");
+                showToast("Incident deleted");
                 selectedIncidentId = null;
-                await loadData({ force: true });
-            } catch (error) {
-                showError(`Unable to delete incident: ${error.message}`);
-            }
+                await loadData();
+                notesPage = 1;
+                renderRecentNotes();
+            } catch (e) { showError("Delete failed"); }
         }
 
-        loadData({ force: true });
-        window.setInterval(() => {
-            loadData({ silent: true });
+        // Initial load
+        loadData();
+        getQueueCount();
+
+        // Poll every 5 seconds, but skip when editing
+        setInterval(() => {
+            if (!isEditing) {
+                loadData();
+                getQueueCount();
+            }
         }, POLL_INTERVAL_MS);
     </script>
 </body>

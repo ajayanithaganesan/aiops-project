@@ -21,9 +21,13 @@ sns = boto3.client("sns")
 s3 = boto3.client("s3")
 cloudwatch = boto3.client('cloudwatch')
 ssm = boto3.client("ssm")
+sqs = boto3.client('sqs')
 
 # Our DynamoDB table to store Incident data
 table = dynamodb.Table("aiops-incidents")
+
+# SQS Queue URL
+SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/924791147049/aiops-failed-queue"
 
 # Getting configuration from AWS SSM service
 def get_ssm_parameter(name, fallback_env):
@@ -33,7 +37,7 @@ def get_ssm_parameter(name, fallback_env):
     except Exception:
         return os.environ.get(fallback_env, "").strip()
 
-# Configuration values and URL's
+# Configuration values
 NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
 LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
@@ -65,7 +69,7 @@ def push_metric(metric_name, value):
             MetricData=[{'MetricName': metric_name, 'Value': value, 'Unit': 'Count'}]
         )
     except Exception:
-        pass  # Don't crash if metrics fail
+        pass
 
 # Parsing request body
 def parse_body(event):
@@ -197,7 +201,118 @@ Incident ID: {incident.get('incident_id', 'N/A')}
         record_alert_status(incident["incident_id"], "FAILED", error=str(e))
         push_metric("AIFailures", 1)
 
-# Calling local AI via Ngrok to analyze log
+# Save failed incident to SQS
+def save_to_queue(log_message, error):
+    try:
+        response = sqs.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps({
+                'log': log_message,
+                'error': str(error),
+                'timestamp': datetime.datetime.utcnow().isoformat()
+            })
+        )
+        print(f"Saved failed incident to queue: {response.get('MessageId')}")
+        return True
+    except Exception as e:
+        print(f"Failed to save to queue: {e}")
+        return False
+
+# Get queue count (simple, reliable)
+def get_queue_count():
+    try:
+        response = sqs.get_queue_attributes(
+            QueueUrl=SQS_QUEUE_URL,
+            AttributeNames=['ApproximateNumberOfMessages']
+        )
+        return int(response['Attributes'].get('ApproximateNumberOfMessages', 0))
+    except Exception as e:
+        print(f"Failed to get queue stats: {e}")
+        return 0
+
+# Get failed incidents from queue (peek only - does NOT consume messages)
+def get_failed_incidents():
+    """Get failed incidents from queue without hiding them"""
+    try:
+        # Get approximate count
+        count_response = sqs.get_queue_attributes(
+            QueueUrl=SQS_QUEUE_URL,
+            AttributeNames=['ApproximateNumberOfMessages']
+        )
+        message_count = int(count_response['Attributes'].get('ApproximateNumberOfMessages', 0))
+        
+        if message_count == 0:
+            return []
+        
+        # IMPORTANT: VisibilityTimeout=0 means messages stay visible
+        # They will NOT be hidden from other consumers
+        messages = sqs.receive_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MaxNumberOfMessages=min(10, message_count),
+            VisibilityTimeout=0,  # ← THIS IS THE KEY FIX
+            WaitTimeSeconds=1
+        )
+        
+        failed = []
+        for msg in messages.get('Messages', []):
+            body = json.loads(msg['Body'])
+            failed.append({
+                'receipt_handle': msg['ReceiptHandle'],
+                'log': body.get('log', ''),
+                'error': body.get('error', ''),
+                'timestamp': body.get('timestamp', '')
+            })
+        return failed
+    except Exception as e:
+        print(f"Failed to get messages: {e}")
+        return []
+
+# Retry a failed incident (delete from queue, update DynamoDB)
+def retry_failed_incident(receipt_handle, log_message, incident_id):
+    try:
+        # Try AI again
+        parsed = call_ai(log_message)
+        
+        # Update the incident in DynamoDB
+        severity = classify_severity(
+            parsed.get("error_type", "Unknown"),
+            f"{parsed.get('root_cause', '')} {log_message}"
+        )
+        
+        # Update existing incident
+        update_expression = "SET error_type = :error_type, root_cause = :root_cause, recommended_fix = :recommended_fix, severity = :severity, updated_at = :updated_at"
+        values = {
+            ":error_type": parsed.get("error_type", "Unknown"),
+            ":root_cause": parsed.get("root_cause", "Not identified"),
+            ":recommended_fix": parsed.get("recommended_fix", "Manual investigation required"),
+            ":severity": severity,
+            ":updated_at": datetime.datetime.utcnow().isoformat()
+        }
+        
+        table.update_item(
+            Key={"incident_id": incident_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=values
+        )
+        
+        # Delete from queue
+        sqs.delete_message(
+            QueueUrl=SQS_QUEUE_URL,
+            ReceiptHandle=receipt_handle
+        )
+        
+        # Send alert if HIGH/MEDIUM
+        if severity in ["HIGH", "MEDIUM"]:
+            incident = table.get_item(Key={"incident_id": incident_id}).get('Item', {})
+            publish_incident_alert(incident)
+        
+        return {'success': True, 'message': 'Incident updated successfully'}
+        
+    except Exception as e:
+        print(f"Retry failed: {e}")
+        return {'success': False, 'message': str(e)}
+
+# Calling AI
 def call_ai(log_message):
     req = urllib.request.Request(
         NGROK_URL,
@@ -230,11 +345,15 @@ def create_incident():
     # Analyzing with AI
     try:
         parsed = call_ai(log_message)
-    except Exception:
+        ai_failed = False
+    except Exception as exc:
+        print("AI ERROR:", str(exc))
+        ai_failed = True
+        save_to_queue(log_message, str(exc))
         parsed = {
-            "error_type": "Timeout",
+            "error_type": "AI_Service_Unavailable",
             "root_cause": "AI service not reachable",
-            "recommended_fix": "Check ngrok connection",
+            "recommended_fix": "Click Retry when AI is back online",
         }
 
     # Using custom severity library to determine severity
@@ -252,7 +371,7 @@ def create_incident():
     push_metric("TotalIncidents", 1)
 
     # Sending alert for HIGH/MEDIUM severity incidents
-    if severity in ["HIGH", "MEDIUM"]:
+    if not ai_failed and severity in ["HIGH", "MEDIUM"]:
         if severity == "HIGH":
             push_metric("HighSeverityIncidents", 1)
         else:
@@ -299,7 +418,6 @@ def update_incident(body):
         ExpressionAttributeNames=names,
         ReturnValues="ALL_NEW"
     )
-
     # If incident is resolved, send metric and archive to S3 bucket
     if status == "RESOLVED":
         push_metric("ResolvedIncidents", 1)
@@ -326,7 +444,7 @@ def generate_daily_csv_report():
 
     items = list_incidents()
     resolved = [i for i in items if i.get("status") == "RESOLVED"]
-
+    
     # Creating CSV
     output = io.StringIO()
     writer = csv.writer(output)
@@ -363,6 +481,27 @@ def lambda_handler(event, _context):
         return generate_daily_csv_report()
 
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
+    
+    # Get queue count
+    if method == "GET" and get_query_param(event, "queue_count") == "true":
+        count = get_queue_count()
+        return create_response(200, {"queue_count": count})
+    
+    # Get failed incidents
+    if method == "GET" and get_query_param(event, "failed_queue") == "true":
+        failed = get_failed_incidents()
+        return create_response(200, failed)
+    
+    # Retrying failed incident
+    if method == "POST":
+        body = parse_body(event)
+        if body.get("action") == "retry_failed":
+            result = retry_failed_incident(
+                body.get("receipt_handle"),
+                body.get("log_message"),
+                body.get("incident_id")
+            )
+            return create_response(200, result)
 
     # Handling CORS
     if method == "OPTIONS":
@@ -382,7 +521,7 @@ def lambda_handler(event, _context):
                 return create_response(500, {"message": f"Delete failed: {str(e)}"})
         return update_incident(body)
 
-    # Handling DELETE requests
+    # Handlig DELETE requests
     if method == "DELETE":
         body = parse_body(event)
         incident_id = body.get("incident_id")
@@ -407,3 +546,4 @@ def lambda_handler(event, _context):
         return create_response(200, list_incidents())
 
     return create_response(405, {"message": "Method not allowed"})
+    
