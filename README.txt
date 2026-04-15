@@ -1,4 +1,4 @@
-# AIOps Recommendation and Incident Management Dashboard
+# AIOps Recommendation and Incident Management Dashboard using Serverless Cloud Architecture
 
 **Author:** Ajay Anitha Ganesan
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-This project is a serverless CloudOps dashboard that automatically analyzes AWS error logs, identifies root causes, and provides operational remediation steps. The system integrates 5 AWS services programmatically and operates through a modern HTML/JavaScript interface.
+This project is a serverless CloudOps dashboard that automatically analyzes AWS error logs, identifies root causes, and provides operational remediation steps. The system integrates 6 AWS services programmatically and operates through a modern HTML/JavaScript interface.
 
 **AWS Services Used:**
 - DynamoDB - Stores incidents
@@ -14,7 +14,8 @@ This project is a serverless CloudOps dashboard that automatically analyzes AWS 
 - CloudWatch - Incident metrics
 - S3 - Archiving resolved incidents and CSV reports
 - SQS - Dead letter queue for failed AI processing
-
+- SSM - Stores secrets and configuration
+- Lambda - Processes incidents and interacts with other services
 ---
 
 ## 2. Project Structure
@@ -42,11 +43,6 @@ project-root/
 |-----------|-------------|
 | `/aiops/sns_topic_arn` | SNS Topic ARN for email alerts |
 | `/aiops/s3_archive_bucket` | S3 bucket for archiving |
-
-**Lambda Environment Variables:**
-| Variable | Description |
-|----------|-------------|
-| `NGROK_URL` | Local AI endpoint URL |
 
 ---
 
