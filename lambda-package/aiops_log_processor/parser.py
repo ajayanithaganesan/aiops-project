@@ -3,16 +3,15 @@ import re
 
 def extract_from_text(text):
     """
-    Parses unstructured raw text returned by the AI model into a mapped dictionary.
-    Uses regex patterns to locate key infrastructure sections like Error Type,
-    Root Cause, and Recommended Fixes based on standard model formatting variants.
+    Reads the raw text response from the AI model and extracts the key fields — Error Type, Root Cause, 
+    and Recommended Fix — using pattern matching, returning them as a structured dictionary.
     """
     def clean(value):
-        # Strips out arbitrary markdown styling and whitespace edge artifacts
+        # Removes markdown formatting and trims any extra whitespace from the extracted value
         return value.replace("**", "").strip()
 
     def find_block(start_label, end_label=None):
-        # Dynamically grabs multiline string blocks between two boundary headers
+        # Extracts the text content found between two named section headers in the AI response
         if end_label:
             pattern = rf"{start_label}\s*[:\-]?\s*(.*?)\s*{end_label}"
         else:

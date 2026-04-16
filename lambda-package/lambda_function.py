@@ -26,9 +26,6 @@ sqs = boto3.client('sqs')
 # Our DynamoDB table to store Incident data
 table = dynamodb.Table("aiops-incidents")
 
-# SQS Queue URL
-SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/924791147049/aiops-failed-queue"
-
 # Getting configuration from AWS SSM service
 def get_ssm_parameter(name, fallback_env):
     try:
@@ -38,10 +35,11 @@ def get_ssm_parameter(name, fallback_env):
         return os.environ.get(fallback_env, "").strip()
 
 # Configuration values
-NGROK_URL = "https://doily-unenamelled-angelita.ngrok-free.dev/analyze"
-LOG_API = "https://raw.githubusercontent.com/ajayanithaganesan/aiops-log-data/main/logs.json"
+NGROK_URL = get_ssm_parameter("/aiops/ngrok_url", "NGROK_URL")
+LOG_API = get_ssm_parameter("/aiops/log_api", "LOG_API")
 SNS_TOPIC_ARN = get_ssm_parameter("/aiops/sns_topic_arn", "SNS_TOPIC_ARN")
 S3_ARCHIVE_BUCKET = get_ssm_parameter("/aiops/s3_archive_bucket", "S3_ARCHIVE_BUCKET")
+SQS_QUEUE_URL = get_ssm_parameter("/aiops/sqs_queue_url", "SQS_QUEUE_URL")
 
 # Fixing Decimal numbers for JSON
 def scrub_decimals(data):
@@ -218,7 +216,7 @@ def save_to_queue(log_message, error):
         print(f"Failed to save to queue: {e}")
         return False
 
-# Get queue count (simple, reliable)
+# Get queue count
 def get_queue_count():
     try:
         response = sqs.get_queue_attributes(
@@ -230,9 +228,8 @@ def get_queue_count():
         print(f"Failed to get queue stats: {e}")
         return 0
 
-# Get failed incidents from queue (peek only - does NOT consume messages)
+# Get failed incidents from queue
 def get_failed_incidents():
-    """Get failed incidents from queue without hiding them"""
     try:
         # Get approximate count
         count_response = sqs.get_queue_attributes(
@@ -244,12 +241,11 @@ def get_failed_incidents():
         if message_count == 0:
             return []
         
-        # IMPORTANT: VisibilityTimeout=0 means messages stay visible
-        # They will NOT be hidden from other consumers
+        # Queue visibility in dashboard
         messages = sqs.receive_message(
             QueueUrl=SQS_QUEUE_URL,
             MaxNumberOfMessages=min(10, message_count),
-            VisibilityTimeout=0,  # ← THIS IS THE KEY FIX
+            VisibilityTimeout=0,  
             WaitTimeSeconds=1
         )
         

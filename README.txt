@@ -43,6 +43,9 @@ project-root/
 |-----------|-------------|
 | `/aiops/sns_topic_arn` | SNS Topic ARN for email alerts |
 | `/aiops/s3_archive_bucket` | S3 bucket for archiving |
+| `/aiops/log_api` | URL of the GitHub raw logs JSON |
+| `/aiops/ngrok_url` | URL of the local AI proxy (ngrok) |
+| `/aiops/sqs_queue_url` | URL of the SQS queue for failed incidents |
 
 ---
 
