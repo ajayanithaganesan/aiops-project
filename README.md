@@ -1,12 +1,12 @@
-# AIOps Recommendation and Incident Management Dashboard
+# 🤖 AIOps Recommendation and Incident Management Dashboard
 
 > A serverless AWS incident-management dashboard that analyses operational logs, creates actionable incidents, notifies responders, and preserves recovery and reporting data across a managed cloud workflow.
 
 **Author:** Ajay Anitha Ganesan  
-**Status:** Active academic cloud-platform project  
-**Deployment model:** Static S3 dashboard + AWS Lambda Function URL
+**Status:** ✅ Active academic cloud-platform project  
+**Deployment model:** ☁️ Static S3 dashboard + AWS Lambda Function URL
 
-## Architecture
+## 🏗️ Architecture
 
 ![AIOps dashboard architecture](docs/AIOps%20Dashboard%20Architecture%20Diagram.png)
 
@@ -26,7 +26,7 @@ Lambda Function URL --> AWS Lambda --> DynamoDB
 EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 ```
 
-## What It Does
+## ✨ What It Does
 
 | Capability | Implementation |
 |---|---|
@@ -38,7 +38,7 @@ EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 | Audit and reporting | Archives resolved incidents as JSON and writes resolved-incident CSV reports to S3. |
 | Observability | Publishes custom CloudWatch metrics for incident volume, severity, resolution, and AI failures. |
 
-## AWS Services
+## ☁️ AWS Services
 
 | Service | Purpose in this application | Programmatic use |
 |---|---|---|
@@ -51,7 +51,7 @@ EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 | AWS Systems Manager Parameter Store | Runtime configuration | Supplies the AI URL, sample-log URL, SNS topic ARN, S3 bucket, and SQS queue URL. |
 | Amazon EventBridge | Scheduled automation | Triggers the Lambda reporting path for periodic resolved-incident CSV generation. |
 
-## Project Structure
+## 📁 Project Structure
 
 ```text
 aiops/
@@ -68,7 +68,7 @@ aiops/
 `-- .github/workflows/deploy.yml                # CI/CD workflow
 ```
 
-## Reusable Library
+## 📦 Reusable Library
 
 The Lambda imports the published `aiops_log_processor` library to keep domain logic separate from AWS orchestration.
 
@@ -78,7 +78,7 @@ The Lambda imports the published `aiops_log_processor` library to keep domain lo
 | `parser.py` | Extracts error type, severity, root cause, and recommended fix from AI output. |
 | `severity.py` | Classifies incident severity from operational-error signals. |
 
-## API
+## 🔌 API
 
 The S3 dashboard calls the Lambda Function URL directly. CORS is configured on the Lambda Function URL.
 
@@ -92,7 +92,7 @@ The S3 dashboard calls the Lambda Function URL directly. CORS is configured on t
 | `POST` | `{ action: "retry_failed", ... }` | Re-run AI analysis for an SQS failure and update its incident. |
 | `POST` | `{ action: "delete", incident_id }` | Delete an incident record. |
 
-## Configuration
+## ⚙️ Configuration
 
 Runtime configuration is read from Parameter Store first, with Lambda environment variables as fallbacks.
 
@@ -104,7 +104,7 @@ Runtime configuration is read from Parameter Store first, with Lambda environmen
 | `/aiops/s3_archive_bucket` | `S3_ARCHIVE_BUCKET` | Bucket for resolved-incident archives and reports. |
 | `/aiops/sqs_queue_url` | `SQS_QUEUE_URL` | Queue URL for failed AI-analysis requests. |
 
-## Local AI Service
+## 🧠 Local AI Service
 
 The project uses `phi4-mini:latest` through Ollama. Keep this service and its ngrok tunnel running while generating incidents from the deployed dashboard.
 
@@ -121,7 +121,7 @@ ngrok http 8000
 
 Update `/aiops/ngrok_url` in SSM Parameter Store after restarting ngrok if the public URL changes.
 
-## Deployment
+## 🚀 Deployment
 
 | Step | Action |
 |---|---|
@@ -136,7 +136,7 @@ Update `/aiops/ngrok_url` in SSM Parameter Store after restarting ngrok if the p
 | 9 | Upload `index.html` to the S3 static website bucket. |
 | 10 | Configure the EventBridge schedule to invoke the Lambda report-generation flow. |
 
-## CI/CD
+## 🔄 CI/CD
 
 The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on pushes to `main` affecting the Lambda, dashboard, or workflow configuration.
 
@@ -149,7 +149,7 @@ The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on pushes to 
 
 Required GitHub repository secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_S3_FRONTEND_BUCKET`.
 
-## Technology Stack
+## 🛠️ Technology Stack
 
 | Layer | Technology |
 |---|---|
@@ -161,7 +161,7 @@ Required GitHub repository secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 | AI analysis | Ollama `phi4-mini:latest`, FastAPI, ngrok |
 | Automation | GitHub Actions |
 
-## Notes
+## 📝 Notes
 
 This is an educational cloud-platform project. The AI inference component is intentionally separated from AWS hosting and persistence so it can be replaced by a managed model service when available.
 
