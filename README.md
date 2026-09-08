@@ -8,7 +8,7 @@
 
 ## Architecture
 
-![AIOps project architecture](AIOps%20Project%20Architecture%20Diagram.png)
+![AIOps dashboard architecture](docs/AIOps%20Dashboard%20Architecture%20Diagram.png)
 
 ```text
 S3 Static Dashboard
@@ -57,7 +57,8 @@ EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 aiops/
 |-- index.html                                  # S3-hosted dashboard
 |-- app.py                                      # Local FastAPI endpoint for Ollama analysis
-|-- AIOps Project Architecture Diagram.png      # Architecture diagram used above
+|-- docs/
+|   `-- AIOps Dashboard Architecture Diagram.png # Architecture diagram used above
 |-- lambda-package/
 |   |-- lambda_function.py                      # Lambda API and AWS integrations
 |   `-- aiops_log_processor/                    # Reusable Python library
