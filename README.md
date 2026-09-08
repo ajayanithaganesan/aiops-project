@@ -3,7 +3,7 @@
 > A serverless AWS incident-management dashboard that analyses operational logs, creates actionable incidents, notifies responders, and preserves recovery and reporting data across a managed cloud workflow.
 
 **Author:** Ajay Anitha Ganesan  
-**Status:** ✅ Active academic cloud-platform project  
+**Status:** ✅ Completed academic cloud-platform project  
 **Deployment model:** ☁️ Static S3 dashboard + AWS Lambda Function URL
 
 ## 🏗️ Architecture
