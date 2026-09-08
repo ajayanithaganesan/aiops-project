@@ -38,6 +38,10 @@ EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 | Audit and reporting | Archives resolved incidents as JSON and writes resolved-incident CSV reports to S3. |
 | Observability | Publishes custom CloudWatch metrics for incident volume, severity, resolution, and AI failures. |
 
+### 🖥️ Hosted Dashboard
+
+![Hosted AIOps dashboard](docs/AIOps%20Dashboard%20hosted%20Site%20screenshot.png)
+
 ## ☁️ AWS Services
 
 | Service | Purpose in this application | Programmatic use |
@@ -50,6 +54,10 @@ EventBridge schedule --> Lambda --> resolved-incident CSV report in S3
 | Amazon SQS | Failure recovery queue | Holds failed AI-analysis requests and supports controlled retries. |
 | AWS Systems Manager Parameter Store | Runtime configuration | Supplies the AI URL, sample-log URL, SNS topic ARN, S3 bucket, and SQS queue URL. |
 | Amazon EventBridge | Scheduled automation | Triggers the Lambda reporting path for periodic resolved-incident CSV generation. |
+
+### 📊 CloudWatch Metrics
+
+![CloudWatch dashboard with AIOps custom metrics](docs/CloudWatch%20Dashboard%20View%20of%20custom%20metrics%20in%20aws%20console.png)
 
 ## 📁 Project Structure
 
@@ -121,6 +129,10 @@ ngrok http 8000
 
 Update `/aiops/ngrok_url` in SSM Parameter Store after restarting ngrok if the public URL changes.
 
+### 🌐 Local AI Tunnel
+
+![ngrok tunnel running locally](docs/Screenshot%20of%20ngrok%20tunnel%20running%20locally.png)
+
 ## 🚀 Deployment
 
 | Step | Action |
@@ -136,6 +148,10 @@ Update `/aiops/ngrok_url` in SSM Parameter Store after restarting ngrok if the p
 | 9 | Upload `index.html` to the S3 static website bucket. |
 | 10 | Configure the EventBridge schedule to invoke the Lambda report-generation flow. |
 
+### ⏰ Scheduled Reporting
+
+![EventBridge schedule for report generation](docs/Screenshot%20of%20eventbridge%20scheduler%20configured%20in%20aws%20console%20to%20generate%20reports.png)
+
 ## 🔄 CI/CD
 
 The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on pushes to `main` affecting the Lambda, dashboard, or workflow configuration.
@@ -148,6 +164,10 @@ The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on pushes to 
 | Frontend deploy | Uploads `index.html` to the configured S3 bucket. |
 
 Required GitHub repository secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_S3_FRONTEND_BUCKET`.
+
+### ✅ Successful Deployment
+
+![GitHub Actions successful deployment](docs/Github%20actions%20workflow%20image%20of%20successfull%20deployment.png)
 
 ## 🛠️ Technology Stack
 
